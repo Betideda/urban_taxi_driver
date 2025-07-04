@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/nav_dashboard" android:title="@string/dashboard" android:icon="@drawable/car_dashb"/>
+    <item android:id="@+id/nav_bookings" android:title="Trips" android:icon="@android:drawable/ic_menu_directions"/>
+    <item android:id="@+id/nav_shifts" android:title="Shifts" android:icon="@android:drawable/ic_menu_today"/>
+    <item android:id="@+id/nav_profile" android:title="@string/profile" android:icon="@drawable/account"/>
+<!--
+    <item android:id="@+id/tax_manager" android:title="Taximeter" android:icon="@android:drawable/btn_radio"/>
+-->
+</menu>

@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FAFAFA">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:background="@android:color/white"
+        android:elevation="4dp">
+
+        <!-- Fare Input and Start Button -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="2"
+            android:layout_marginBottom="16dp"
+            android:gravity="center_vertical">
+
+            <EditText
+                android:id="@+id/etFareAmount"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Fare Amount"
+                android:inputType="numberDecimal"
+                android:padding="12dp"
+                android:background="@android:drawable/edit_text"
+                android:layout_marginEnd="8dp" />
+
+            <Button
+                android:id="@+id/btnStartTrip"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Start Trip"
+                android:drawableStart="@android:drawable/ic_media_play"
+                android:padding="12dp"
+                android:backgroundTint="@android:color/holo_green_dark"
+                android:textColor="@android:color/white" />
+        </LinearLayout>
+
+        <!-- Other Buttons -->
+        <Button
+            android:id="@+id/btnEndTrip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Print Last Ticket"
+            android:drawableStart="@android:drawable/ic_menu_agenda"
+            android:padding="12dp"
+            android:backgroundTint="@android:color/holo_blue_dark"
+            android:textColor="@android:color/white"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/askOldTrips"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Old Trips"
+            android:drawableStart="@android:drawable/ic_menu_recent_history"
+            android:padding="12dp"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/askCurrentFareAmount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Current Fare"
+            android:drawableStart="@android:drawable/ic_menu_info_details"
+            android:padding="12dp"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/btnTaximeterStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Taximeter Status"
+            android:drawableStart="@android:drawable/ic_menu_compass"
+            android:padding="12dp"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/askLastClosedShiftDetails"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Last Shift Details"
+            android:drawableStart="@android:drawable/ic_menu_agenda"
+            android:padding="12dp"
+            android:layout_marginBottom="12dp" />
+
+    </LinearLayout>
+</ScrollView>

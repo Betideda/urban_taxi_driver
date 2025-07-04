@@ -1,0 +1,42 @@
+<resources>
+    <string name="app_name">Urban Taxi</string>
+    <string name="online">Start shift</string>
+    <string name="offline">Close shift</string>
+    <string name="my_rides">My Rides</string>
+    <string name="app_logo">App Logo</string>
+    <string name="settings">Cilësimet</string>
+    <string name="logout">Dil</string>
+    <string name="update_password">Përditëso Fjalëkalimin</string>
+    <string name="confirm_logout">Konfirmo daljen</string>
+    <string name="are_you_sure_you_want_to_logout">Jeni i sigurt që dëshironi të dilni?</string>
+    <string name="yes">Po</string>
+    <string name="no">Jo</string>
+    <string name="empty">Bosh</string>
+    <string name="empty_fields">Te dhënat të pa plotësuara!</string>
+    <string name="wrong">Gabim</string>
+    <string name="wrong_email_password">Email ose fjalëkalim i gabuar.</string>
+    <string name="wrong_data">Te dhënat e gabuara!\n%1$s</string>
+    <string name="you_are_online">Shift started!</string>
+    <string name="you_are_offline">Shift ended!</string>
+    <string name="failed_to_set_status">Vendosja e statusit dështoi!</string>
+    <string name="network_error">Gabim rrjeti!</string>
+    <string name="current_password">Fjalëkalimi aktual</string>
+    <string name="new_password">Fjalëkalimi i ri</string>
+    <string name="confirm_new_password">Konformo fjalëkalimin e ri</string>
+    <string name="update">Përditëso</string>
+    <string name="welcome_to_urban_taxi">Mirësevjen në Urban Taxi</string>
+    <string name="password">Fjalëkalimi</string>
+    <string name="email">Email</string>
+    <string name="login">Hyr</string>
+    <string name="dashboard">Kryefaqja</string>
+    <string name="profile">Profili</string>
+
+
+    <string name="tax_forhire">LIBERO</string>
+    <string name="tax_hired">OCCUPATO</string>
+    <string name="tax_stopped">CASSA</string>
+    <string name="tax_na">N/A</string>
+    <string name="tax_state">Stato Tassametro:</string>
+    <string name="test_features">Dongle Test features</string>
+    <string name="ble_tax_features">Ble Tax Test features</string>
+</resources>

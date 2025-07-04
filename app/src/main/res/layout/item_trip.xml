@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="250dp">
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_alignParentBottom="true"
+        android:layout_margin="16dp"
+        android:elevation="8dp"
+        android:padding="16dp"
+        app:cardCornerRadius="10dp"
+        app:cardElevation="12dp"
+        app:strokeColor="#f5f5f5"
+        app:strokeWidth="0.6dp">
+
+        <RelativeLayout
+            android:id="@+id/relativeAssignedTrip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/white"
+            android:orientation="horizontal"
+            android:padding="16dp"
+            tools:visibility="visible">
+
+            <LinearLayout
+                android:id="@+id/linearPickup"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Pickup address:"
+                    android:textColor="@color/black" />
+
+                <TextView
+                    android:id="@+id/pickupAddress"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="N/A"
+                    android:textSize="16sp"
+                    tools:text="Rruga Petro Marko 4, Tiranë, Albania" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/linearDropOff"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/linearPickup"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Drop off address:"
+                    android:textColor="@color/black" />
+
+                <TextView
+                    android:id="@+id/dropOffAddress"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="N/A"
+                    android:textSize="16sp"
+                    tools:text="8RM5+R93, Rruga Asim Vokshi, Tiranë, Albania" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/linearDropOff"
+                android:layout_marginTop="8dp"
+                android:text="N/A"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/total"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_below="@id/linearDropOff"
+                android:layout_alignParentEnd="true"
+                android:layout_marginTop="8dp"
+                android:text="0.0"
+                android:textColor="@color/black"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/acceptButton"
+                android:layout_width="wrap_content"
+                android:layout_height="45dp"
+                android:layout_below="@+id/total"
+                android:layout_alignParentBottom="true"
+                android:text="Accept"
+                android:textColor="@color/black" />
+
+            <Button
+                android:id="@+id/openInMaps"
+                android:layout_width="wrap_content"
+                android:layout_height="45dp"
+                android:layout_below="@+id/total"
+                android:layout_alignParentEnd="true"
+                android:layout_alignParentBottom="true"
+                android:text="Open in maps"
+                android:textColor="@color/black" />
+        </RelativeLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+</RelativeLayout>
