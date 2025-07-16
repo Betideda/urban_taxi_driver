@@ -3,7 +3,6 @@ package com.driverapp.fragments
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -23,7 +22,6 @@ import com.digitax.android.libcomtax2.taximeter.messages.FullShiftDetailsRespons
 import com.digitax.android.libcomtax2.taximeter.messages.LastClosedShiftDetailsResponse
 import com.digitax.android.libcomtax2.taximeter.messages.OldTripsShiftsSearchCompleteResponse
 import com.digitax.android.libcomtax2.taximeter.objects.ExtendedStatus
-import com.digitax.android.libcomtax2.taximeter.objects.OldTripShiftRequest
 import com.driverapp.R
 import com.driverapp.utils.DigitaxTaximeterInitializer
 import com.driverapp.utils.SharedPreferencesManager
@@ -46,7 +44,7 @@ class ShiftsFragment : Fragment(),
     private lateinit var offlineText: TextView
     private lateinit var onlineText: TextView
     private lateinit var shiftNo: TextView
-    var exStat: ExtendedStatus? = null
+    private var exStat: ExtendedStatus? = null
     private var taximeterManagerr: TaximeterManager? = null
     private var taxiModelAgentt: TaxiModelAgent? = null
 
@@ -80,7 +78,7 @@ class ShiftsFragment : Fragment(),
             // Set online to grey
             onlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.grey))
             onlineText.setTextColor(ContextCompat.getColor(requireContext(), R.color.grey))
-            setShift(0)
+            setShift(false)
         }
         onlineLayout.setOnClickListener {
             // Set offline to grey
@@ -90,12 +88,12 @@ class ShiftsFragment : Fragment(),
             // Set online to black
             onlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.black))
             onlineText.setTextColor(ContextCompat.getColor(requireContext(), R.color.black))
-            setShift(1)
+            setShift(true)
         }
     }
 
-    private fun setShift(onlineStatus: Int) {
-        if (onlineStatus == 1) {
+    private fun setShift(onlineStatus: Boolean) {
+        if (onlineStatus) {
             val firstname = sharedPreferencesManager.getString("firstName", "")
             val id = sharedPreferencesManager.getString("id", "")
             taxiModelAgentt?.openShift(id, firstname)
