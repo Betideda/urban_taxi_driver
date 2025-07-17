@@ -12,6 +12,7 @@ import com.driverapp.networkApi.models.OnlineStatusBody
 import com.driverapp.networkApi.models.PickupTripAddressBody
 import com.driverapp.networkApi.models.ProfileResponse
 import com.driverapp.networkApi.models.SetLocationBody
+import com.driverapp.networkApi.models.ShiftInfo
 import com.driverapp.networkApi.models.TaximeterStatusBody
 import com.driverapp.networkApi.models.UpdatePasswordBody
 import okhttp3.ResponseBody
@@ -97,6 +98,12 @@ interface ApiServices {
     fun markAsReceived(
         @Header("Authorization") token: String,
         @Path("broadcastEventId") broadcastEventId: String,
+    ): Call<ResponseBody>
+
+    @POST("api/v1/my-shifts/current/close")
+    fun sendShiftInfo(
+        @Header("Authorization") token: String,
+        @Body shiftInfo: ShiftInfo
     ): Call<ResponseBody>
 
     @GET("/api/v1/my-trips/{tripId}")
