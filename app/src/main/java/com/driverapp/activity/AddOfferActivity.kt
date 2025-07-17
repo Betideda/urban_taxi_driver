@@ -199,30 +199,50 @@ class AddOfferActivity :
             }
         }
     }
-
+//    private fun initializeDigitaxTaximeter() {
+//        DigitaxTaximeterInitializer(this, this)
+//            .initialize(object : DigitaxTaximeterInitializer.Callback {
+//                override fun onInitialized(
+//                    taximeterManager: TaximeterManager,
+//                    taxiModelAgent: TaxiModelAgent
+//                ) {
+//                    // Save or use them as needed
+//                    taximeterManagerr = taximeterManager
+//                    taxiModelAgentt = taxiModelAgent
+//                    taximeterManager.OnDisplayExtendedStatusReceived.registerListener(this@AddOfferActivity)
+//                    taximeterManager.OnTripDetailsExtendedResponseReceived.registerListener(this@AddOfferActivity)
+//
+//                }
+//
+//                override fun onConnectionStatusChanged(connected: Boolean) {
+//                    // Optional UI feedback
+//                }
+//            })
+//    }
     /**
      * Initialize taximeter with proper callback handling
      */
-    private suspend fun initializeDigitaxTaximeter() {
-        withContext(Dispatchers.IO) {
-            DigitaxTaximeterInitializer(this@AddOfferActivity, this@AddOfferActivity)
+    private fun initializeDigitaxTaximeter() {
+        Log.d("AddOfferActivity", "Case 1")
+        DigitaxTaximeterInitializer(this, this)
                 .initialize(object : DigitaxTaximeterInitializer.Callback {
                     override fun onInitialized(
                         taximeterManager: TaximeterManager,
                         taxiModelAgent: TaxiModelAgent
                     ) {
+                        Log.d("AddOfferActivity", "Case 2")
                         lifecycleScope.launch {
                             handleTaximeterInitialized(taximeterManager, taxiModelAgent)
                         }
                     }
 
                     override fun onConnectionStatusChanged(connected: Boolean) {
+                        Log.d("AddOfferActivity", "Case 3")
                         lifecycleScope.launch {
                             handleConnectionStatusChange(connected)
                         }
                     }
                 })
-        }
     }
 
     /**
@@ -290,14 +310,21 @@ class AddOfferActivity :
      * Process trip creation with proper async handling
      */
     private suspend fun processTrip(zoneOffer: Zone) {
+
         stateMutex.withLock {
             isProcessingTrip = true
         }
+
+        requestTaximeterUpdates()
+
+        // Wait for taximeter to update and get trip details
+        delay(500)
 
         // Validate taximeter status
         val extendedStatus = stateMutex.withLock { currentExtendedStatus }
         if (extendedStatus?.StatusCode != TaximeterStatusCodes.ForHire) {
             showToast("Taximeter must be in ForHire status to start trip")
+            Log.d("Extended Status", extendedStatus?.StatusCode.toString())
             return
         }
 
@@ -313,9 +340,7 @@ class AddOfferActivity :
             return
         }
 
-        // Wait for taximeter to update and get trip details
-        delay(100)
-        requestTaximeterUpdates()
+
 
         // Wait for trip details to be available
         delay(2500)
@@ -349,8 +374,9 @@ class AddOfferActivity :
             try {
                 taximeterManagerr?.askTripDetailsExtended()
                 taximeterManagerr?.askDisplayExtendedStatus()
+                Log.d("Request Updates", "Updates Requested")
             } catch (e: Exception) {
-                Log.e("AddOfferActivity", "Failed to request taximeter updates: ${e.message}")
+                Log.e("Request Updates", "Failed to request taximeter updates: ${e.message}")
             }
         }
     }
@@ -529,7 +555,7 @@ class AddOfferActivity :
                 currentShiftID = response?.extendedStatusData?.ShiftNumber
             }
 
-            Log.d("AddOfferActivity", "Status updated - Fare: ${response?.extendedStatusData?.CurrentFareAmount}, Shift: ${response?.extendedStatusData?.ShiftNumber}")
+            Log.d("Display Extended Status Response", "Status updated - Fare: ${response?.extendedStatusData?.CurrentFareAmount}, Shift: ${response?.extendedStatusData?.ShiftNumber}")
         }
     }
 
