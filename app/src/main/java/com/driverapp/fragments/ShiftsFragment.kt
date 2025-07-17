@@ -3,6 +3,7 @@ package com.driverapp.fragments
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -16,11 +17,9 @@ import com.digitax.android.libcomtax2.taximeter.TaximeterManager
 import com.digitax.android.libcomtax2.taximeter.events.DisplayExtendedStatusListener
 import com.digitax.android.libcomtax2.taximeter.events.FullShiftDetailsResponseListener
 import com.digitax.android.libcomtax2.taximeter.events.LastClosedShiftDetailsResponseListener
-import com.digitax.android.libcomtax2.taximeter.events.OldTripsShiftsSearchCompleteResponseListener
 import com.digitax.android.libcomtax2.taximeter.messages.DisplayExtendedStatusResponse
 import com.digitax.android.libcomtax2.taximeter.messages.FullShiftDetailsResponse
 import com.digitax.android.libcomtax2.taximeter.messages.LastClosedShiftDetailsResponse
-import com.digitax.android.libcomtax2.taximeter.messages.OldTripsShiftsSearchCompleteResponse
 import com.digitax.android.libcomtax2.taximeter.objects.ExtendedStatus
 import com.driverapp.R
 import com.driverapp.utils.DigitaxTaximeterInitializer
@@ -33,8 +32,7 @@ import kotlinx.coroutines.launch
 class ShiftsFragment : Fragment(),
     DisplayExtendedStatusListener,
     FullShiftDetailsResponseListener,
-    LastClosedShiftDetailsResponseListener,
-    OldTripsShiftsSearchCompleteResponseListener{
+    LastClosedShiftDetailsResponseListener {
 
     private lateinit var sharedPreferencesManager: SharedPreferencesManager
     private lateinit var offlineLayout: LinearLayout
@@ -44,6 +42,8 @@ class ShiftsFragment : Fragment(),
     private lateinit var offlineText: TextView
     private lateinit var onlineText: TextView
     private lateinit var shiftNo: TextView
+    private lateinit var tripCount: TextView
+    private lateinit var totalFare: TextView
     private var exStat: ExtendedStatus? = null
     private var taximeterManagerr: TaximeterManager? = null
     private var taxiModelAgentt: TaxiModelAgent? = null
@@ -60,6 +60,7 @@ class ShiftsFragment : Fragment(),
         sharedPreferencesManager = SharedPreferencesManager(requireContext())
         lifecycleScope.launch(Dispatchers.IO) {
             initializeDigitaxTaximeter()
+            taximeterManagerr?.askFullShiftDetails(true)
         }
 
         offlineLayout = view.findViewById(R.id.offline_layout)
@@ -69,6 +70,8 @@ class ShiftsFragment : Fragment(),
         offlineText = view.findViewById(R.id.offline_text)
         onlineText = view.findViewById(R.id.online_text)
         shiftNo = view.findViewById(R.id.shiftNo)
+        tripCount = view.findViewById(R.id.tripCount)
+        totalFare = view.findViewById(R.id.totalFare)
 
         offlineLayout.setOnClickListener {
             // Set offline to black
@@ -98,6 +101,10 @@ class ShiftsFragment : Fragment(),
             val id = sharedPreferencesManager.getString("id", "")
             taxiModelAgentt?.openShift(id, firstname)
             showSnackbar(getString(R.string.you_are_online))
+
+            Handler(Looper.getMainLooper()).postDelayed({
+                taxiModelAgentt?.askFullShiftDetails(true)
+            }, 2500)
         } else {
             showSnackbar(getString(R.string.you_are_offline))
             taxiModelAgentt?.closeShift()
@@ -105,6 +112,7 @@ class ShiftsFragment : Fragment(),
             //taxiModelAgentt?.printLastShiftReport()
 
             Handler(Looper.getMainLooper()).postDelayed({
+                taxiModelAgentt?.askFullShiftDetails(true)
                 taxiModelAgentt?.askLastClosedShiftDetails()
             }, 2500)
         }
@@ -129,7 +137,6 @@ class ShiftsFragment : Fragment(),
                     taximeterManager.OnDisplayExtendedStatusReceived.registerListener(this@ShiftsFragment)
                     taximeterManager.OnFullShiftDetailsResponseReceived.registerListener(this@ShiftsFragment)
                     taximeterManager.OnLastClosedShiftDetailsResponseReceived.registerListener(this@ShiftsFragment)
-                    taximeterManager.OnOldTripsShiftsSearchCompleteResponseReceived.registerListener(this@ShiftsFragment)
                 }
 
                 override fun onConnectionStatusChanged(connected: Boolean) {
@@ -140,11 +147,16 @@ class ShiftsFragment : Fragment(),
 
     override fun onDisplayExtendedStatus(p0: Any?, displayExtendedStatusResponse: DisplayExtendedStatusResponse?) {
         exStat = displayExtendedStatusResponse?.extendedStatusData
-        shiftNo.text = "TURNI: " + (exStat?.ShiftNumber ?: "N/A").toString()
+//        shiftNo.text = "TURNI: " + (exStat?.ShiftNumber ?: "N/A").toString()
     }
 
-    override fun onFullShiftDetailsResponse(p0: Any?, fullShiftDetailsResponse: FullShiftDetailsResponse?) {
-        //Log.d("ShiftsFragment", "Full Shift Details: ${fullShiftDetailsResponse?.fullShiftDetails?.ShiftInfoStart}")
+    override fun onFullShiftDetailsResponse(p0: Any?, response: FullShiftDetailsResponse?) {
+        val totalTripsCount = (response?.fullShiftDetails?.ShiftInfoEnd?.TripsQuantity?.toInt() ?: 0) - (response?.fullShiftDetails?.ShiftInfoStart?.TripsQuantity?.toInt() ?: 0)
+        val totalFareAmount = (response?.fullShiftDetails?.ShiftInfoEnd?.TotalAmount?. toDouble() ?: 0.0) - (response?.fullShiftDetails?.ShiftInfoStart?.TotalAmount?.toDouble() ?: 0.0)
+        shiftNo.setText("TURNI: " + (response?.fullShiftDetails?.ShiftConsecutiveNumber ?: "N/A").toString())
+        tripCount.setText("UDHETIMET: " + totalTripsCount)
+        totalFare.setText("TOTALI: " + totalFareAmount)
+        Log.d("ShiftsFragment", "Full Shift Details: ${response?.fullShiftDetails?.ShiftInfoStart}")
     }
 
     override fun onLastClosedShiftDetailsResponse(p0: Any?, lastClosedResponse: LastClosedShiftDetailsResponse?) {
@@ -160,11 +172,4 @@ class ShiftsFragment : Fragment(),
         //taxiModelAgentt?.askOldTrips(true, request)
     }
 
-    override fun onOldTripsShiftsSearchCompleteResponse(p0: Any?, p1: OldTripsShiftsSearchCompleteResponse?) {
-        //val json = p1?.body?.toString(Charsets.UTF_8)
-        //Log.d("OldTripsShifts", "JSON body: $json")
-        //val size = p1?.body?.size
-        //Log.d("OldTripsShifts", "size: $size")
-        //TODO() // Handle the response as needed, e.g., also add api request later
-    }
 }
