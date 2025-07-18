@@ -22,6 +22,7 @@ import com.digitax.android.libcomtax2.taximeter.messages.FullShiftDetailsRespons
 import com.digitax.android.libcomtax2.taximeter.messages.LastClosedShiftDetailsResponse
 import com.digitax.android.libcomtax2.taximeter.objects.ExtendedStatus
 import com.driverapp.R
+import com.driverapp.networkApi.models.ShiftInfo
 import com.driverapp.utils.DigitaxTaximeterInitializer
 import com.driverapp.utils.SharedPreferencesManager
 import com.driverapp.utils.TaxiModelAgent
@@ -167,18 +168,44 @@ class ShiftsFragment : Fragment(),
 
     override fun onLastClosedShiftDetailsResponse(
         p0: Any?,
-        lastClosedResponse: LastClosedShiftDetailsResponse?
+        response: LastClosedShiftDetailsResponse?
     ) {
-        //Log.d("LastClosed", "Shift Details: ${lastClosedResponse?.fullShiftDetails.toString()}")
-        //
-        //val request = OldTripShiftRequest(
-        //    false,
-        //    lastClosedResponse?.fullShiftDetails?.ShiftInfoEnd?.TripsQuantity?.toByte() ?: 0,
-        //    0,
-        //    lastClosedResponse?.fullShiftDetails?.ShiftStartDate,
-        //);
-        //
-        //taxiModelAgentt?.askOldTrips(true, request)
+        val details = response?.fullShiftDetails
+        val startDetails = response?.fullShiftDetails?.ShiftInfoStart
+        val endDetails = response?.fullShiftDetails?.ShiftInfoEnd
+        val shiftInformation = ShiftInfo(
+            // General Information
+            (details?.ShiftConsecutiveNumber ?: "N/A").toString(),
+            // Starter Information
+            (startDetails?.TripsQuantity ?: "N/A").toString(),
+            (startDetails?.UnitsQuantity ?: "N/A").toString(),
+            (startDetails?.TotalDistance ?: "N/A").toString(),
+            (startDetails?.HiredDistance ?: "N/A").toString(),
+            (startDetails?.ForHireDistance ?: "N/A").toString(),
+            (startDetails?.BlackTripDistance ?: "N/A").toString(),
+            (startDetails?.WaitingTime ?: "N/A").toString(),
+            (startDetails?.FareAmount ?: "N/A").toString(),
+            (startDetails?.ExtrasAmount ?: "N/A").toString(),
+            (startDetails?.CreditCardAmount ?: "N/A").toString(),
+            (startDetails?.TaxAmount ?: "N/A").toString(),
+            (startDetails?.TipsAmount ?: "N/A").toString(),
+            // End Information
+            (endDetails?.TripsQuantity ?: "N/A").toString(),
+            (endDetails?.UnitsQuantity ?: "N/A").toString(),
+            (endDetails?.TotalDistance ?: "N/A").toString(),
+            (endDetails?.HiredDistance ?: "N/A").toString(),
+            (endDetails?.ForHireDistance ?: "N/A").toString(),
+            (endDetails?.BlackTripDistance ?: "N/A").toString(),
+            (endDetails?.WaitingTime ?: "N/A").toString(),
+            (endDetails?.FareAmount ?: "N/A").toString(),
+            (endDetails?.ExtrasAmount ?: "N/A").toString(),
+            (endDetails?.CreditCardAmount ?: "N/A").toString(),
+            (endDetails?.TaxAmount ?: "N/A").toString(),
+            (endDetails?.TipsAmount ?: "N/A").toString(),
+            // Timestamps
+            (details?.ShiftStartDate ?: "N/A").toString(),
+            (details?.ShiftEndDate ?: "N/A").toString(),
+        )
     }
 
 }
