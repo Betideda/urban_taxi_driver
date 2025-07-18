@@ -22,6 +22,7 @@ import com.digitax.android.libcomtax2.taximeter.messages.FullShiftDetailsRespons
 import com.digitax.android.libcomtax2.taximeter.messages.LastClosedShiftDetailsResponse
 import com.digitax.android.libcomtax2.taximeter.objects.ExtendedStatus
 import com.driverapp.R
+import com.driverapp.networkApi.Api
 import com.driverapp.networkApi.models.ShiftInfo
 import com.driverapp.utils.DigitaxTaximeterInitializer
 import com.driverapp.utils.SharedPreferencesManager
@@ -29,28 +30,49 @@ import com.driverapp.utils.TaxiModelAgent
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
+import okhttp3.ResponseBody
 
 class ShiftsFragment : Fragment(),
     DisplayExtendedStatusListener,
     FullShiftDetailsResponseListener,
     LastClosedShiftDetailsResponseListener {
 
+    // region Class Member Variables
     private lateinit var sharedPreferencesManager: SharedPreferencesManager
+
+    // UI Components
     private lateinit var offlineLayout: LinearLayout
     private lateinit var onlineLayout: LinearLayout
     private lateinit var offlineIcon: ImageView
     private lateinit var onlineIcon: ImageView
     private lateinit var offlineText: TextView
     private lateinit var onlineText: TextView
-    private lateinit var shiftNo: TextView
-    private lateinit var tripCount: TextView
-    private lateinit var totalFare: TextView
-    private var exStat: ExtendedStatus? = null
-    private var taximeterManagerr: TaximeterManager? = null
-    private var taxiModelAgentt: TaxiModelAgent? = null
+    private lateinit var shiftNumberText: TextView
+    private lateinit var tripCountText: TextView
+    private lateinit var totalFareText: TextView
+
+    // Taximeter Components
+    private var extendedStatus: ExtendedStatus? = null
+    private var taximeterManager: TaximeterManager? = null
+    private var taxiModelAgent: TaxiModelAgent? = null
+
+    // State Management
+    private var isTaximeterInitialized = false
+    private var isShiftOnline = false
+
+    // Authentication
+    private val authToken: String
+        get() = "Bearer ${sharedPreferencesManager.getString("token", "")}"
+
+    // endregion
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
+        inflater: LayoutInflater,
+        container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
         return inflater.inflate(R.layout.fragment_shifts, container, false)
@@ -58,33 +80,81 @@ class ShiftsFragment : Fragment(),
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        sharedPreferencesManager = SharedPreferencesManager(requireContext())
-        lifecycleScope.launch(Dispatchers.IO) {
-            initializeDigitaxTaximeter()
-            taximeterManagerr?.askFullShiftDetails(true)
-        }
 
+        initializeComponents()
+        setupUI(view)
+        initializeTaximeter()
+    }
+
+    /**
+     * Initialize core components
+     */
+    private fun initializeComponents() {
+        sharedPreferencesManager = SharedPreferencesManager(requireContext())
+    }
+
+    /**
+     * Setup UI components and event listeners
+     */
+    private fun setupUI(view: View) {
+        // Initialize UI elements
         offlineLayout = view.findViewById(R.id.offline_layout)
         onlineLayout = view.findViewById(R.id.online_layout)
         offlineIcon = view.findViewById(R.id.offline_icon)
         onlineIcon = view.findViewById(R.id.online_icon)
         offlineText = view.findViewById(R.id.offline_text)
         onlineText = view.findViewById(R.id.online_text)
-        shiftNo = view.findViewById(R.id.shiftNo)
-        tripCount = view.findViewById(R.id.tripCount)
-        totalFare = view.findViewById(R.id.totalFare)
+        shiftNumberText = view.findViewById(R.id.shiftNo)
+        tripCountText = view.findViewById(R.id.tripCount)
+        totalFareText = view.findViewById(R.id.totalFare)
 
+        // Set click listeners
         offlineLayout.setOnClickListener {
-            // Set offline to black
-            offlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.black))
-            offlineText.setTextColor(ContextCompat.getColor(requireContext(), R.color.black))
-
-            // Set online to grey
-            onlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.grey))
-            onlineText.setTextColor(ContextCompat.getColor(requireContext(), R.color.grey))
-            setShift(false)
+            handleOfflineClick()
         }
+
         onlineLayout.setOnClickListener {
+            handleOnlineClick()
+        }
+    }
+
+    /**
+     * Initialize taximeter connection
+     */
+    private fun initializeTaximeter() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                initializeDigitaxTaximeter()
+            } catch (e: Exception) {
+                Log.e("ShiftsFragment", "Failed to initialize taximeter: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    showSnackbar("Failed to initialize taximeter connection")
+                }
+            }
+        }
+    }
+
+    /**
+     * Handle offline button click
+     */
+    private fun handleOfflineClick() {
+        updateUIState(isOnline = false)
+        setShift(false)
+    }
+
+    /**
+     * Handle online button click
+     */
+    private fun handleOnlineClick() {
+        updateUIState(isOnline = true)
+        setShift(true)
+    }
+
+    /**
+     * Update UI state for online/offline status
+     */
+    private fun updateUIState(isOnline: Boolean) {
+        if (isOnline) {
             // Set offline to grey
             offlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.grey))
             offlineText.setTextColor(ContextCompat.getColor(requireContext(), R.color.grey))
@@ -92,39 +162,75 @@ class ShiftsFragment : Fragment(),
             // Set online to black
             onlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.black))
             onlineText.setTextColor(ContextCompat.getColor(requireContext(), R.color.black))
-            setShift(true)
-        }
-    }
-
-    private fun setShift(onlineStatus: Boolean) {
-        if (onlineStatus) {
-            val firstname = sharedPreferencesManager.getString("firstName", "")
-            val id = sharedPreferencesManager.getString("id", "")
-            taxiModelAgentt?.openShift(id, firstname)
-            showSnackbar(getString(R.string.you_are_online))
-
-            Handler(Looper.getMainLooper()).postDelayed({
-                taxiModelAgentt?.askFullShiftDetails(true)
-            }, 2500)
         } else {
-            showSnackbar(getString(R.string.you_are_offline))
-            taxiModelAgentt?.closeShift()
-            //Do not need to print, since it is automatically printed
-            //taxiModelAgentt?.printLastShiftReport()
+            // Set offline to black
+            offlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.black))
+            offlineText.setTextColor(ContextCompat.getColor(requireContext(), R.color.black))
 
-            Handler(Looper.getMainLooper()).postDelayed({
-                taxiModelAgentt?.askFullShiftDetails(true)
-                taxiModelAgentt?.askLastClosedShiftDetails()
-            }, 2500)
+            // Set online to grey
+            onlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.grey))
+            onlineText.setTextColor(ContextCompat.getColor(requireContext(), R.color.grey))
         }
     }
 
-    private fun showSnackbar(message: String) {
-        activity?.runOnUiThread {
-            Snackbar.make(requireView(), message, Snackbar.LENGTH_SHORT).show()
+    /**
+     * Set shift status and handle taximeter operations
+     */
+    private fun setShift(onlineStatus: Boolean) {
+        if (!isTaximeterInitialized) {
+            showSnackbar("Taximeter not initialized")
+            return
+        }
+
+        isShiftOnline = onlineStatus
+
+        if (onlineStatus) {
+            handleShiftOpen()
+        } else {
+            handleShiftClose()
         }
     }
 
+    /**
+     * Handle shift opening
+     */
+    private fun handleShiftOpen() {
+        val firstName = sharedPreferencesManager.getString("firstName", "")
+        val id = sharedPreferencesManager.getString("id", "")
+
+        taxiModelAgent?.openShift(id, firstName)
+        showSnackbar(getString(R.string.you_are_online))
+
+        // Request updated shift details after a delay
+        Handler(Looper.getMainLooper()).postDelayed({
+            requestShiftDetails()
+        }, 2500)
+    }
+
+    /**
+     * Handle shift closing
+     */
+    private fun handleShiftClose() {
+        showSnackbar(getString(R.string.you_are_offline))
+        taxiModelAgent?.closeShift()
+
+        // Request updated shift details and last closed shift details after a delay
+        Handler(Looper.getMainLooper()).postDelayed({
+            requestShiftDetails()
+            taxiModelAgent?.askLastClosedShiftDetails()
+        }, 2500)
+    }
+
+    /**
+     * Request current shift details
+     */
+    private fun requestShiftDetails() {
+        taximeterManager?.askFullShiftDetails(true)
+    }
+
+    /**
+     * Initialize taximeter with proper callback handling
+     */
     private fun initializeDigitaxTaximeter() {
         DigitaxTaximeterInitializer(requireContext(), requireActivity())
             .initialize(object : DigitaxTaximeterInitializer.Callback {
@@ -132,80 +238,223 @@ class ShiftsFragment : Fragment(),
                     taximeterManager: TaximeterManager,
                     taxiModelAgent: TaxiModelAgent
                 ) {
-                    // Save or use them as needed
-                    taximeterManagerr = taximeterManager
-                    taxiModelAgentt = taxiModelAgent
-                    taximeterManager.OnDisplayExtendedStatusReceived.registerListener(this@ShiftsFragment)
-                    taximeterManager.OnFullShiftDetailsResponseReceived.registerListener(this@ShiftsFragment)
-                    taximeterManager.OnLastClosedShiftDetailsResponseReceived.registerListener(this@ShiftsFragment)
+                    lifecycleScope.launch {
+                        handleTaximeterInitialized(taximeterManager, taxiModelAgent)
+                    }
                 }
 
                 override fun onConnectionStatusChanged(connected: Boolean) {
-                    // Optional UI feedback
+                    lifecycleScope.launch {
+                        handleConnectionStatusChange(connected)
+                    }
                 }
             })
     }
 
-    override fun onDisplayExtendedStatus(
-        p0: Any?,
-        displayExtendedStatusResponse: DisplayExtendedStatusResponse?
+    /**
+     * Handle successful taximeter initialization
+     */
+    private suspend fun handleTaximeterInitialized(
+        taximeterManager: TaximeterManager,
+        taxiModelAgent: TaxiModelAgent
     ) {
-        exStat = displayExtendedStatusResponse?.extendedStatusData
+        withContext(Dispatchers.Main) {
+            this@ShiftsFragment.taximeterManager = taximeterManager
+            this@ShiftsFragment.taxiModelAgent = taxiModelAgent
+            isTaximeterInitialized = true
+
+            // Register listeners
+            taximeterManager.OnDisplayExtendedStatusReceived.registerListener(this@ShiftsFragment)
+            taximeterManager.OnFullShiftDetailsResponseReceived.registerListener(this@ShiftsFragment)
+            taximeterManager.OnLastClosedShiftDetailsResponseReceived.registerListener(this@ShiftsFragment)
+
+            // Request initial shift details
+            requestShiftDetails()
+
+            Log.d("ShiftsFragment", "Taximeter initialized successfully")
+        }
     }
 
-    override fun onFullShiftDetailsResponse(p0: Any?, response: FullShiftDetailsResponse?) {
-        val totalTripsCount = (response?.fullShiftDetails?.ShiftInfoEnd?.TripsQuantity?.toInt()
-            ?: 0) - (response?.fullShiftDetails?.ShiftInfoStart?.TripsQuantity?.toInt() ?: 0)
-        val totalFareAmount = (response?.fullShiftDetails?.ShiftInfoEnd?.TotalAmount?.toDouble()
-            ?: 0.0) - (response?.fullShiftDetails?.ShiftInfoStart?.TotalAmount?.toDouble() ?: 0.0)
-        shiftNo.setText(
-            "TURNI: " + (response?.fullShiftDetails?.ShiftConsecutiveNumber ?: "N/A").toString()
-        )
-        tripCount.setText("UDHETIMET: " + totalTripsCount)
-        totalFare.setText("TOTALI: " + totalFareAmount)
-        Log.d("ShiftsFragment", "Full Shift Details: ${response?.fullShiftDetails?.ShiftInfoStart}")
+    /**
+     * Handle taximeter connection status changes
+     */
+    private suspend fun handleConnectionStatusChange(connected: Boolean) {
+        withContext(Dispatchers.Main) {
+            if (!connected) {
+                isTaximeterInitialized = false
+                extendedStatus = null
+            }
+            Log.d("ShiftsFragment", "Taximeter connection: $connected")
+        }
+    }
+
+    /**
+     * Send shift information to backend API
+     */
+    private fun sendShiftInfo(shiftInfo: ShiftInfo) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                Api.retrofitService.sendShiftInfo(authToken, shiftInfo)
+                    .enqueue(object : Callback<ResponseBody> {
+                        override fun onResponse(
+                            call: Call<ResponseBody>,
+                            response: Response<ResponseBody>
+                        ) {
+                            lifecycleScope.launch {
+                                handleShiftInfoResponse(response)
+                            }
+                        }
+
+                        override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
+                            lifecycleScope.launch {
+                                handleShiftInfoFailure(t)
+                            }
+                        }
+                    })
+            } catch (e: Exception) {
+                Log.e("ShiftsFragment", "Failed to send shift info: ${e.message}")
+                lifecycleScope.launch {
+                    showSnackbar("Failed to send shift information")
+                }
+            }
+        }
+    }
+
+    /**
+     * Handle shift info API response
+     */
+    private suspend fun handleShiftInfoResponse(response: Response<ResponseBody>) {
+        withContext(Dispatchers.Main) {
+            if (response.isSuccessful) {
+                Log.d("ShiftsFragment", "Shift info sent successfully")
+                showSnackbar("Shift information sent successfully")
+            } else {
+                Log.e("ShiftsFragment", "Failed to send shift info: ${response.message()}")
+                showSnackbar("Failed to send shift information: ${response.message()}")
+            }
+        }
+    }
+
+    /**
+     * Handle shift info API failure
+     */
+    private suspend fun handleShiftInfoFailure(t: Throwable) {
+        withContext(Dispatchers.Main) {
+            Log.e("ShiftsFragment", "Shift info API failure: ${t.message}")
+            showSnackbar("Network error: ${t.localizedMessage}")
+        }
+    }
+
+    /**
+     * Show snackbar message
+     */
+    private fun showSnackbar(message: String) {
+        activity?.runOnUiThread {
+            Snackbar.make(requireView(), message, Snackbar.LENGTH_SHORT).show()
+        }
+    }
+
+    // region Taximeter Event Listeners
+
+    override fun onDisplayExtendedStatus(
+        sender: Any?,
+        displayExtendedStatusResponse: DisplayExtendedStatusResponse?
+    ) {
+        extendedStatus = displayExtendedStatusResponse?.extendedStatusData
+        Log.d("ShiftsFragment", "Extended status received")
+    }
+
+    override fun onFullShiftDetailsResponse(sender: Any?, response: FullShiftDetailsResponse?) {
+        response?.let { shiftResponse ->
+            val shiftDetails = shiftResponse.fullShiftDetails
+
+            // Calculate totals
+            val totalTripsCount = (shiftDetails?.ShiftInfoEnd?.TripsQuantity?.toInt() ?: 0) -
+                    (shiftDetails?.ShiftInfoStart?.TripsQuantity?.toInt() ?: 0)
+            val totalFareAmount = (shiftDetails?.ShiftInfoEnd?.TotalAmount?.toDouble() ?: 0.0) -
+                    (shiftDetails?.ShiftInfoStart?.TotalAmount?.toDouble() ?: 0.0)
+
+            // Update UI
+            activity?.runOnUiThread {
+                shiftNumberText.text = "TURNI: ${shiftDetails?.ShiftConsecutiveNumber ?: "N/A"}"
+                tripCountText.text = "UDHETIMET: $totalTripsCount"
+                totalFareText.text = "TOTALI: $totalFareAmount"
+            }
+
+            Log.d(
+                "ShiftsFragment",
+                "Full shift details updated - Trips: $totalTripsCount, Fare: $totalFareAmount"
+            )
+        }
     }
 
     override fun onLastClosedShiftDetailsResponse(
-        p0: Any?,
+        sender: Any?,
         response: LastClosedShiftDetailsResponse?
     ) {
-        val details = response?.fullShiftDetails
-        val startDetails = response?.fullShiftDetails?.ShiftInfoStart
-        val endDetails = response?.fullShiftDetails?.ShiftInfoEnd
-        val shiftInformation = ShiftInfo(
-            // General Information
-            (details?.ShiftConsecutiveNumber ?: "N/A").toString(),
-            // Starter Information
-            (startDetails?.TripsQuantity ?: "N/A").toString(),
-            (startDetails?.UnitsQuantity ?: "N/A").toString(),
-            (startDetails?.TotalDistance ?: "N/A").toString(),
-            (startDetails?.HiredDistance ?: "N/A").toString(),
-            (startDetails?.ForHireDistance ?: "N/A").toString(),
-            (startDetails?.BlackTripDistance ?: "N/A").toString(),
-            (startDetails?.WaitingTime ?: "N/A").toString(),
-            (startDetails?.FareAmount ?: "N/A").toString(),
-            (startDetails?.ExtrasAmount ?: "N/A").toString(),
-            (startDetails?.CreditCardAmount ?: "N/A").toString(),
-            (startDetails?.TaxAmount ?: "N/A").toString(),
-            (startDetails?.TipsAmount ?: "N/A").toString(),
-            // End Information
-            (endDetails?.TripsQuantity ?: "N/A").toString(),
-            (endDetails?.UnitsQuantity ?: "N/A").toString(),
-            (endDetails?.TotalDistance ?: "N/A").toString(),
-            (endDetails?.HiredDistance ?: "N/A").toString(),
-            (endDetails?.ForHireDistance ?: "N/A").toString(),
-            (endDetails?.BlackTripDistance ?: "N/A").toString(),
-            (endDetails?.WaitingTime ?: "N/A").toString(),
-            (endDetails?.FareAmount ?: "N/A").toString(),
-            (endDetails?.ExtrasAmount ?: "N/A").toString(),
-            (endDetails?.CreditCardAmount ?: "N/A").toString(),
-            (endDetails?.TaxAmount ?: "N/A").toString(),
-            (endDetails?.TipsAmount ?: "N/A").toString(),
-            // Timestamps
-            (details?.ShiftStartDate ?: "N/A").toString(),
-            (details?.ShiftEndDate ?: "N/A").toString(),
-        )
+        response?.let { shiftResponse ->
+            val shiftDetails = shiftResponse.fullShiftDetails
+            val startDetails = shiftDetails?.ShiftInfoStart
+            val endDetails = shiftDetails?.ShiftInfoEnd
+
+            // Create ShiftInfo object
+            val shiftInfo = ShiftInfo(
+                // General Information
+                taximeterShiftId = (shiftDetails?.ShiftConsecutiveNumber ?: "N/A").toString(),
+
+                // Start Info
+                startInfoTripsQuantity = (startDetails?.TripsQuantity ?: "N/A").toString(),
+                startInfoUnitsQuantity = (startDetails?.UnitsQuantity ?: "N/A").toString(),
+                startInfoTotalDistance = (startDetails?.TotalDistance ?: "N/A").toString(),
+                startInfoHiredDistance = (startDetails?.HiredDistance ?: "N/A").toString(),
+                startInfoForHireDistance = (startDetails?.ForHireDistance ?: "N/A").toString(),
+                startInfoBlackTripDistance = (startDetails?.BlackTripDistance ?: "N/A").toString(),
+                startInfoWaitingTime = (startDetails?.WaitingTime ?: "N/A").toString(),
+                startInfoFareAmount = (startDetails?.FareAmount ?: "N/A").toString(),
+                startInfoExtrasAmount = (startDetails?.ExtrasAmount ?: "N/A").toString(),
+                startInfoCreditCardAmount = (startDetails?.CreditCardAmount ?: "N/A").toString(),
+                startInfoTaxAmount = (startDetails?.TaxAmount ?: "N/A").toString(),
+                startInfoTipsAmount = (startDetails?.TipsAmount ?: "N/A").toString(),
+
+                // End Info
+                endInfoTripsQuantity = (endDetails?.TripsQuantity ?: "N/A").toString(),
+                endInfoUnitsQuantity = (endDetails?.UnitsQuantity ?: "N/A").toString(),
+                endInfoTotalDistance = (endDetails?.TotalDistance ?: "N/A").toString(),
+                endInfoHiredDistance = (endDetails?.HiredDistance ?: "N/A").toString(),
+                endInfoForHireDistance = (endDetails?.ForHireDistance ?: "N/A").toString(),
+                endInfoBlackTripDistance = (endDetails?.BlackTripDistance ?: "N/A").toString(),
+                endInfoWaitingTime = (endDetails?.WaitingTime ?: "N/A").toString(),
+                endInfoFareAmount = (endDetails?.FareAmount ?: "N/A").toString(),
+                endInfoExtrasAmount = (endDetails?.ExtrasAmount ?: "N/A").toString(),
+                endInfoCreditCardAmount = (endDetails?.CreditCardAmount ?: "N/A").toString(),
+                endInfoTaxAmount = (endDetails?.TaxAmount ?: "N/A").toString(),
+                endInfoTipsAmount = (endDetails?.TipsAmount ?: "N/A").toString(),
+
+                // Timestamps
+                shiftStartedAt = (shiftDetails?.ShiftStartDate ?: "N/A").toString(),
+                shiftEndedAt = (shiftDetails?.ShiftEndDate ?: "N/A").toString()
+            )
+
+            // Send shift info to backend
+            sendShiftInfo(shiftInfo)
+
+            Log.d("ShiftsFragment", "Last closed shift details processed and sent to backend")
+        }
     }
 
+    // endregion
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Unregister listeners
+        taximeterManager?.OnDisplayExtendedStatusReceived?.unregisterListener(this)
+        taximeterManager?.OnFullShiftDetailsResponseReceived?.unregisterListener(this)
+        taximeterManager?.OnLastClosedShiftDetailsResponseReceived?.unregisterListener(this)
+
+        // Clear references
+        taximeterManager = null
+        taxiModelAgent = null
+
+        Log.d("ShiftsFragment", "Fragment destroyed and cleaned up")
+    }
 }
