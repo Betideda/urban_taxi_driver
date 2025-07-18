@@ -510,6 +510,13 @@ class TripsFragment : Fragment(), MyTripsButtonClickListener, DisplayExtendedSta
             return
         }
 
+        // Validate taximeter status
+        val extendedStatus = stateMutex.withLock { currentExtendedStatus }
+        if (extendedStatus?.StatusCode != TaximeterStatusCodes.Hired) {
+            showToast("Taximeter Status must be Hired!")
+            return
+        }
+
         // Request taximeter updates
         requestTaxiMeterUpdates()
 
