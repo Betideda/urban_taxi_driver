@@ -49,7 +49,7 @@ data class GenericResponse(
 )
 
 data class OnlineStatusBody(
-    val isOnline: Int // 1 for online, 0 for offline
+    val isOnline: Boolean
 )
 
 data class TaximeterStatusBody(
@@ -67,6 +67,7 @@ data class PickupTripAddressBody(
     val pickup_address_lat: Double?,
     val pickup_address_lng: Double?,
 )
+
 data class DropOffTripAddressBody(
     val drop_off_address: String?,
     val drop_off_address_lat: Double?,

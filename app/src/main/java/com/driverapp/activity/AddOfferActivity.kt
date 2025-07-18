@@ -525,9 +525,18 @@ class AddOfferActivity :
         response: DisplayExtendedStatusResponse?
     ) {
         lifecycleScope.launch {
+            val previousStatus = stateMutex.withLock { currentExtendedStatus }
+
             stateMutex.withLock {
                 currentExtendedStatus = response?.extendedStatusData
                 currentShiftID = response?.extendedStatusData?.ShiftNumber
+            }
+
+            // Check if status actually changed
+            val newStatus = response?.extendedStatusData
+            if (previousStatus?.StatusCode != newStatus?.StatusCode) {
+                // Status changed - send location to backend
+                sendLocationToBackend(newStatus)
             }
 
             Log.d(
@@ -571,6 +580,15 @@ class AddOfferActivity :
                 Toast.makeText(this@AddOfferActivity, message, Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    /**
+     * Send location data and taximeter status to the backend
+     */
+    private suspend fun sendLocationToBackend(status: ExtendedStatus?) {
+        // Get current location and send to backend
+        val locationSuccess = getCurrentLocation()
+        // TODO: Make API call sending location data and taximeter status to the backend
     }
 
     /**
