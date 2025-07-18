@@ -58,7 +58,8 @@ import androidx.core.net.toUri
  * TripsFragment handles the display and management of assigned taxi trips.
  * This fragment manages taximeter communication, trip lifecycle, and navigation features.
  */
-class TripsFragment : Fragment(), MyTripsButtonClickListener, DisplayExtendedStatusListener, TripDetailsExtendedResponseListener {
+class TripsFragment : Fragment(), MyTripsButtonClickListener, DisplayExtendedStatusListener,
+    TripDetailsExtendedResponseListener {
 
     // region UI Components
     private lateinit var recyclerView: RecyclerView
@@ -399,15 +400,15 @@ class TripsFragment : Fragment(), MyTripsButtonClickListener, DisplayExtendedSta
      * Handle trip start
      */
     private suspend fun handleStartTrip(trip: Trip) {
+        if (!isTaximeterInitialized) {
+            showToast("Taximeter not initialized")
+            return
+        }
+
         // Validate taximeter status
         val extendedStatus = stateMutex.withLock { currentExtendedStatus }
         if (extendedStatus?.StatusCode != TaximeterStatusCodes.ForHire) {
             showToast("Taximeter Status must be ForHire!")
-            return
-        }
-
-        if (!isTaximeterInitialized) {
-            showToast("Taximeter not initialized")
             return
         }
 
@@ -486,7 +487,10 @@ class TripsFragment : Fragment(), MyTripsButtonClickListener, DisplayExtendedSta
     /**
      * Handle start trip response
      */
-    private suspend fun handleStartTripResponse(response: retrofit2.Response<MyTripData>, total: String) {
+    private suspend fun handleStartTripResponse(
+        response: retrofit2.Response<MyTripData>,
+        total: String
+    ) {
         withContext(Dispatchers.Main) {
             if (response.isSuccessful) {
                 loadTrips()
@@ -501,6 +505,11 @@ class TripsFragment : Fragment(), MyTripsButtonClickListener, DisplayExtendedSta
      * Handle trip completion
      */
     private suspend fun handleCompleteTrip(trip: Trip) {
+        if (!isTaximeterInitialized) {
+            showToast("Taximeter not initialized")
+            return
+        }
+
         // Request taximeter updates
         requestTaxiMeterUpdates()
 
@@ -615,7 +624,8 @@ class TripsFragment : Fragment(), MyTripsButtonClickListener, DisplayExtendedSta
             }
 
             try {
-                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireContext())
+                val fusedLocationClient =
+                    LocationServices.getFusedLocationProviderClient(requireContext())
                 val location = fusedLocationClient.lastLocation
 
                 var success = false
@@ -731,7 +741,10 @@ class TripsFragment : Fragment(), MyTripsButtonClickListener, DisplayExtendedSta
                 hiredDistance = response?.extendedStatusData?.HiredDistance ?: 0f
             }
 
-            Log.d("TripsFragment", "Status updated - Distance: $hiredDistance, Shift: $currentShiftID")
+            Log.d(
+                "TripsFragment",
+                "Status updated - Distance: $hiredDistance, Shift: $currentShiftID"
+            )
         }
     }
 

@@ -145,21 +145,30 @@ class ShiftsFragment : Fragment(),
             })
     }
 
-    override fun onDisplayExtendedStatus(p0: Any?, displayExtendedStatusResponse: DisplayExtendedStatusResponse?) {
+    override fun onDisplayExtendedStatus(
+        p0: Any?,
+        displayExtendedStatusResponse: DisplayExtendedStatusResponse?
+    ) {
         exStat = displayExtendedStatusResponse?.extendedStatusData
-//        shiftNo.text = "TURNI: " + (exStat?.ShiftNumber ?: "N/A").toString()
     }
 
     override fun onFullShiftDetailsResponse(p0: Any?, response: FullShiftDetailsResponse?) {
-        val totalTripsCount = (response?.fullShiftDetails?.ShiftInfoEnd?.TripsQuantity?.toInt() ?: 0) - (response?.fullShiftDetails?.ShiftInfoStart?.TripsQuantity?.toInt() ?: 0)
-        val totalFareAmount = (response?.fullShiftDetails?.ShiftInfoEnd?.TotalAmount?. toDouble() ?: 0.0) - (response?.fullShiftDetails?.ShiftInfoStart?.TotalAmount?.toDouble() ?: 0.0)
-        shiftNo.setText("TURNI: " + (response?.fullShiftDetails?.ShiftConsecutiveNumber ?: "N/A").toString())
+        val totalTripsCount = (response?.fullShiftDetails?.ShiftInfoEnd?.TripsQuantity?.toInt()
+            ?: 0) - (response?.fullShiftDetails?.ShiftInfoStart?.TripsQuantity?.toInt() ?: 0)
+        val totalFareAmount = (response?.fullShiftDetails?.ShiftInfoEnd?.TotalAmount?.toDouble()
+            ?: 0.0) - (response?.fullShiftDetails?.ShiftInfoStart?.TotalAmount?.toDouble() ?: 0.0)
+        shiftNo.setText(
+            "TURNI: " + (response?.fullShiftDetails?.ShiftConsecutiveNumber ?: "N/A").toString()
+        )
         tripCount.setText("UDHETIMET: " + totalTripsCount)
         totalFare.setText("TOTALI: " + totalFareAmount)
         Log.d("ShiftsFragment", "Full Shift Details: ${response?.fullShiftDetails?.ShiftInfoStart}")
     }
 
-    override fun onLastClosedShiftDetailsResponse(p0: Any?, lastClosedResponse: LastClosedShiftDetailsResponse?) {
+    override fun onLastClosedShiftDetailsResponse(
+        p0: Any?,
+        lastClosedResponse: LastClosedShiftDetailsResponse?
+    ) {
         //Log.d("LastClosed", "Shift Details: ${lastClosedResponse?.fullShiftDetails.toString()}")
         //
         //val request = OldTripShiftRequest(

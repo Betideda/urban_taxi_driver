@@ -294,15 +294,15 @@ class AddOfferActivity :
             isProcessingTrip = true
         }
 
+        if (!isTaximeterInitialized) {
+            showToast("Taximeter not initialized")
+            return
+        }
+
         // Validate taximeter status
         val extendedStatus = stateMutex.withLock { currentExtendedStatus }
         if (extendedStatus?.StatusCode != TaximeterStatusCodes.ForHire) {
             showToast("Taximeter must be in ForHire status to start trip")
-            return
-        }
-
-        if (!isTaximeterInitialized) {
-            showToast("Taximeter not initialized")
             return
         }
 
@@ -409,7 +409,8 @@ class AddOfferActivity :
             }
 
             try {
-                val fusedLocationClient = LocationServices.getFusedLocationProviderClient(this@AddOfferActivity)
+                val fusedLocationClient =
+                    LocationServices.getFusedLocationProviderClient(this@AddOfferActivity)
                 val location = fusedLocationClient.lastLocation
 
                 var success = false
@@ -529,7 +530,10 @@ class AddOfferActivity :
                 currentShiftID = response?.extendedStatusData?.ShiftNumber
             }
 
-            Log.d("AddOfferActivity", "Status updated - Fare: ${response?.extendedStatusData?.CurrentFareAmount}, Shift: ${response?.extendedStatusData?.ShiftNumber}")
+            Log.d(
+                "AddOfferActivity",
+                "Status updated - Fare: ${response?.extendedStatusData?.CurrentFareAmount}, Shift: ${response?.extendedStatusData?.ShiftNumber}"
+            )
         }
     }
 
@@ -549,7 +553,10 @@ class AddOfferActivity :
                 }
             }
 
-            Log.d("AddOfferActivity", "Trip details updated - TripID: $currentTripId, ShiftID: $currentShiftID")
+            Log.d(
+                "AddOfferActivity",
+                "Trip details updated - TripID: $currentTripId, ShiftID: $currentShiftID"
+            )
         }
     }
 
