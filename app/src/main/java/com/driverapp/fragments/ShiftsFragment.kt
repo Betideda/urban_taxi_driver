@@ -1,8 +1,6 @@
 package com.driverapp.fragments
 
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -22,7 +20,8 @@ import com.digitax.android.libcomtax2.taximeter.messages.FullShiftDetailsRespons
 import com.digitax.android.libcomtax2.taximeter.messages.LastClosedShiftDetailsResponse
 import com.digitax.android.libcomtax2.taximeter.objects.ExtendedStatus
 import com.driverapp.R
-import com.driverapp.networkApi.Api
+import com.driverapp.handlers.OnlineStatusHandler
+import com.driverapp.handlers.ShiftHandler
 import com.driverapp.networkApi.models.ShiftInfo
 import com.driverapp.utils.DigitaxTaximeterInitializer
 import com.driverapp.utils.SharedPreferencesManager
@@ -31,18 +30,11 @@ import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
-import okhttp3.ResponseBody
 
 class ShiftsFragment : Fragment(),
     DisplayExtendedStatusListener,
     FullShiftDetailsResponseListener,
     LastClosedShiftDetailsResponseListener {
-
-    // region Class Member Variables
-    private lateinit var sharedPreferencesManager: SharedPreferencesManager
 
     // UI Components
     private lateinit var offlineLayout: LinearLayout
@@ -55,6 +47,11 @@ class ShiftsFragment : Fragment(),
     private lateinit var tripCountText: TextView
     private lateinit var totalFareText: TextView
 
+    // region Class Member Variables
+    private lateinit var sharedPreferencesManager: SharedPreferencesManager
+    private lateinit var onlineStatusHandler: OnlineStatusHandler
+    private lateinit var shiftHandler: ShiftHandler
+
     // Taximeter Components
     private var extendedStatus: ExtendedStatus? = null
     private var taximeterManager: TaximeterManager? = null
@@ -62,11 +59,7 @@ class ShiftsFragment : Fragment(),
 
     // State Management
     private var isTaximeterInitialized = false
-    private var isShiftOnline = false
 
-    // Authentication
-    private val authToken: String
-        get() = "Bearer ${sharedPreferencesManager.getString("token", "")}"
 
     // endregion
 
@@ -83,6 +76,11 @@ class ShiftsFragment : Fragment(),
 
         initializeComponents()
         setupUI(view)
+
+        // Load and display current shift status
+        val currentShiftStatus = shiftHandler.isShiftActive()
+        updateShiftUI(currentShiftStatus)
+
         initializeTaximeter()
     }
 
@@ -91,6 +89,8 @@ class ShiftsFragment : Fragment(),
      */
     private fun initializeComponents() {
         sharedPreferencesManager = SharedPreferencesManager(requireContext())
+        onlineStatusHandler = OnlineStatusHandler(requireContext(), lifecycleScope)
+        shiftHandler = ShiftHandler(requireContext(), lifecycleScope, onlineStatusHandler)
     }
 
     /**
@@ -138,22 +138,50 @@ class ShiftsFragment : Fragment(),
      * Handle offline button click
      */
     private fun handleOfflineClick() {
-        updateUIState(isOnline = false)
-        setShift(false)
+        val currentShiftStatus = shiftHandler.isShiftActive()
+        updateShiftUI(false)
+
+        shiftHandler.endShift(object : ShiftHandler.ShiftChangeCallback {
+            override fun onShiftChanged(isActive: Boolean, success: Boolean, message: String?) {
+                activity?.runOnUiThread {
+                    if (success) {
+                        showSnackbar(message ?: getString(R.string.you_are_offline))
+                    } else {
+                        // Revert UI on failure
+                        updateShiftUI(currentShiftStatus)
+                        showSnackbar(message ?: "Failed to end shift")
+                    }
+                }
+            }
+        })
     }
 
     /**
      * Handle online button click
      */
     private fun handleOnlineClick() {
-        updateUIState(isOnline = true)
-        setShift(true)
+        val currentShiftStatus = shiftHandler.isShiftActive()
+        updateShiftUI(true)
+
+        shiftHandler.startShift(object : ShiftHandler.ShiftChangeCallback {
+            override fun onShiftChanged(isActive: Boolean, success: Boolean, message: String?) {
+                activity?.runOnUiThread {
+                    if (success) {
+                        showSnackbar(message ?: getString(R.string.you_are_online))
+                    } else {
+                        // Revert UI on failure
+                        updateShiftUI(currentShiftStatus)
+                        showSnackbar(message ?: "Failed to start shift")
+                    }
+                }
+            }
+        })
     }
 
     /**
      * Update UI state for online/offline status
      */
-    private fun updateUIState(isOnline: Boolean) {
+    private fun updateShiftUI(isOnline: Boolean) {
         if (isOnline) {
             // Set offline to grey
             offlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.grey))
@@ -173,53 +201,6 @@ class ShiftsFragment : Fragment(),
         }
     }
 
-    /**
-     * Set shift status and handle taximeter operations
-     */
-    private fun setShift(onlineStatus: Boolean) {
-        if (!isTaximeterInitialized) {
-            showSnackbar("Taximeter not initialized")
-            return
-        }
-
-        isShiftOnline = onlineStatus
-
-        if (onlineStatus) {
-            handleShiftOpen()
-        } else {
-            handleShiftClose()
-        }
-    }
-
-    /**
-     * Handle shift opening
-     */
-    private fun handleShiftOpen() {
-        val firstName = sharedPreferencesManager.getString("firstName", "")
-        val id = sharedPreferencesManager.getString("id", "")
-
-        taxiModelAgent?.openShift(id, firstName)
-        showSnackbar(getString(R.string.you_are_online))
-
-        // Request updated shift details after a delay
-        Handler(Looper.getMainLooper()).postDelayed({
-            requestShiftDetails()
-        }, 2500)
-    }
-
-    /**
-     * Handle shift closing
-     */
-    private fun handleShiftClose() {
-        showSnackbar(getString(R.string.you_are_offline))
-        taxiModelAgent?.closeShift()
-
-        // Request updated shift details and last closed shift details after a delay
-        Handler(Looper.getMainLooper()).postDelayed({
-            requestShiftDetails()
-            taxiModelAgent?.askLastClosedShiftDetails()
-        }, 2500)
-    }
 
     /**
      * Request current shift details
@@ -273,6 +254,9 @@ class ShiftsFragment : Fragment(),
 
             Log.d("ShiftsFragment", "Taximeter initialized successfully")
         }
+
+        // Set taximeter components in shift handler
+        shiftHandler.setTaximeterComponents(taximeterManager, taxiModelAgent)
     }
 
     /**
@@ -285,63 +269,6 @@ class ShiftsFragment : Fragment(),
                 extendedStatus = null
             }
             Log.d("ShiftsFragment", "Taximeter connection: $connected")
-        }
-    }
-
-    /**
-     * Send shift information to backend API
-     */
-    private fun sendShiftInfo(shiftInfo: ShiftInfo) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                Api.retrofitService.sendShiftInfo(authToken, shiftInfo)
-                    .enqueue(object : Callback<ResponseBody> {
-                        override fun onResponse(
-                            call: Call<ResponseBody>,
-                            response: Response<ResponseBody>
-                        ) {
-                            lifecycleScope.launch {
-                                handleShiftInfoResponse(response)
-                            }
-                        }
-
-                        override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
-                            lifecycleScope.launch {
-                                handleShiftInfoFailure(t)
-                            }
-                        }
-                    })
-            } catch (e: Exception) {
-                Log.e("ShiftsFragment", "Failed to send shift info: ${e.message}")
-                lifecycleScope.launch {
-                    showSnackbar("Failed to send shift information")
-                }
-            }
-        }
-    }
-
-    /**
-     * Handle shift info API response
-     */
-    private suspend fun handleShiftInfoResponse(response: Response<ResponseBody>) {
-        withContext(Dispatchers.Main) {
-            if (response.isSuccessful) {
-                Log.d("ShiftsFragment", "Shift info sent successfully")
-                showSnackbar("Shift information sent successfully")
-            } else {
-                Log.e("ShiftsFragment", "Failed to send shift info: ${response.message()}")
-                showSnackbar("Failed to send shift information: ${response.message()}")
-            }
-        }
-    }
-
-    /**
-     * Handle shift info API failure
-     */
-    private suspend fun handleShiftInfoFailure(t: Throwable) {
-        withContext(Dispatchers.Main) {
-            Log.e("ShiftsFragment", "Shift info API failure: ${t.message}")
-            showSnackbar("Network error: ${t.localizedMessage}")
         }
     }
 
@@ -435,8 +362,19 @@ class ShiftsFragment : Fragment(),
                 shiftEndedAt = (shiftDetails?.ShiftEndDate ?: "N/A").toString()
             )
 
-            // Send shift info to backend
-            sendShiftInfo(shiftInfo)
+            // Use shift handler to send info
+            shiftHandler.sendShiftInfo(shiftInfo, object : ShiftHandler.ShiftInfoCallback {
+                override fun onShiftInfoSent(success: Boolean, message: String?) {
+                    activity?.runOnUiThread {
+                        val displayMessage = if (success) {
+                            "Shift information sent successfully"
+                        } else {
+                            message ?: "Failed to send shift information"
+                        }
+                        showSnackbar(displayMessage)
+                    }
+                }
+            })
 
             Log.d("ShiftsFragment", "Last closed shift details processed and sent to backend")
         }
