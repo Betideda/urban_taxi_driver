@@ -115,7 +115,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     private var locationJob: Job? = null
     // endregion
 
-
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
@@ -125,7 +124,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
         initializeComponents()
         setupUI(view)
         initializeMap()
@@ -138,13 +136,17 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
 
         // Load and display current status
         val currentStatus = onlineStatusHandler.isOnline()
-        lifecycleScope.launch {
-            updateStatusUI(currentStatus)
+        viewLifecycleOwner.lifecycleScope.launch {
+            if (isAdded) {
+                updateStatusUI(currentStatus)
+            }
         }
 
         // Request taximeter status update if available
-        lifecycleScope.launch {
-            requestTaximeterStatusUpdate()
+        viewLifecycleOwner.lifecycleScope.launch {
+            if (isAdded) {
+                requestTaximeterStatusUpdate()
+            }
         }
     }
 
@@ -155,6 +157,13 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
 
     override fun onDestroyView() {
         super.onDestroyView()
+
+        // Cancel all coroutines first to prevent callbacks after view destruction
+        initializationJob?.cancel()
+        statusUpdateJob?.cancel()
+        locationJob?.cancel()
+
+        // Then do the rest of cleanup
         cleanup()
     }
 
@@ -162,10 +171,14 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      * Initialize core components and services
      */
     private fun initializeComponents() {
+        // Check if fragment is still attached before accessing context
+        if (!isAdded) return
+
         sharedPreferencesManager = SharedPreferencesManager(requireContext())
         vibrator = requireContext().getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireContext())
-        onlineStatusHandler = OnlineStatusHandler(requireContext(), lifecycleScope)
+        onlineStatusHandler =
+            OnlineStatusHandler(requireContext(), viewLifecycleOwner.lifecycleScope)
     }
 
     /**
@@ -194,13 +207,13 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      */
     private fun setupStatusClickListeners() {
         offlineLayout.setOnClickListener {
-            lifecycleScope.launch {
+            viewLifecycleOwner.lifecycleScope.launch {
                 handleStatusChange(false)
             }
         }
 
         onlineLayout.setOnClickListener {
-            lifecycleScope.launch {
+            viewLifecycleOwner.lifecycleScope.launch {
                 handleStatusChange(true)
             }
         }
@@ -218,12 +231,16 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      * Start initialization process
      */
     private fun startInitialization() {
-        initializationJob = lifecycleScope.launch {
+        initializationJob = viewLifecycleOwner.lifecycleScope.launch {
             try {
-                initializeTaximeter()
+                if (isAdded) {
+                    initializeTaximeter()
+                }
             } catch (e: Exception) {
                 Log.e("DashboardFragment", "Initialization failed: ${e.message}")
-                showToast("Failed to initialize taximeter connection")
+                if (isAdded) {
+                    showToast("Failed to initialize taximeter connection")
+                }
             }
         }
     }
@@ -232,21 +249,31 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      * Initialize taximeter connection with proper error handling
      */
     private suspend fun initializeTaximeter() {
+        if (!isAdded) return
+
         withContext(Dispatchers.IO) {
-            DigitaxTaximeterInitializer(requireContext(), requireActivity())
+            val context = context ?: return@withContext
+            val activity = activity ?: return@withContext
+
+            DigitaxTaximeterInitializer(context, activity)
                 .initialize(object : DigitaxTaximeterInitializer.Callback {
                     override fun onInitialized(
                         taximeterManager: TaximeterManager,
                         taxiModelAgent: TaxiModelAgent
                     ) {
-                        lifecycleScope.launch {
-                            handleTaximeterInitialized(taximeterManager, taxiModelAgent)
+                        // Use viewLifecycleOwner to ensure coroutine is tied to view lifecycle
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            if (isAdded) {
+                                handleTaximeterInitialized(taximeterManager, taxiModelAgent)
+                            }
                         }
                     }
 
                     override fun onConnectionStatusChanged(connected: Boolean) {
-                        lifecycleScope.launch {
-                            handleConnectionStatusChange(connected)
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            if (isAdded) {
+                                handleConnectionStatusChange(connected)
+                            }
                         }
                     }
                 })
@@ -260,6 +287,8 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
         taximeterManager: TaximeterManager,
         taxiModelAgent: TaxiModelAgent
     ) {
+        if (!isAdded) return
+
         stateMutex.withLock {
             this.taximeterManager = taximeterManager
             this.taxiModelAgent = taxiModelAgent
@@ -286,7 +315,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
                 currentExtendedStatus = null
             }
         }
-
         Log.d("DashboardFragment", "Taximeter connection: $connected")
     }
 
@@ -335,16 +363,16 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
                     success: Boolean,
                     message: String?
                 ) {
-                    lifecycleScope.launch {
+                    viewLifecycleOwner.lifecycleScope.launch {
                         stateMutex.withLock {
                             isProcessingOnlineStatus = false
                         }
-
-                        message?.let { showToast(it) }
-
-                        // Revert UI if failed
-                        if (!success) {
-                            updateStatusUI(!isOnline)
+                        if (isAdded) {
+                            message?.let { showToast(it) }
+                            // Revert UI if failed
+                            if (!success) {
+                                updateStatusUI(!isOnline)
+                            }
                         }
                     }
                 }
@@ -356,34 +384,41 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      */
     private suspend fun updateStatusUI(isOnline: Boolean) {
         withContext(Dispatchers.Main) {
+            // Check if fragment is still attached and views are available
+            if (!isAdded || !::onlineIcon.isInitialized) {
+                Log.w("DashboardFragment", "Fragment not ready for UI update")
+                return@withContext
+            }
+
+            val context = requireContext() // Safe to call here since we checked isAdded
+
             if (isOnline) {
                 // Set online to active
-                onlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.black))
-                onlineText.setTextColor(ContextCompat.getColor(requireContext(), R.color.black))
-
+                onlineIcon.setColorFilter(ContextCompat.getColor(context, R.color.black))
+                onlineText.setTextColor(ContextCompat.getColor(context, R.color.black))
                 // Set offline to inactive
-                offlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.grey))
-                offlineText.setTextColor(ContextCompat.getColor(requireContext(), R.color.grey))
+                offlineIcon.setColorFilter(ContextCompat.getColor(context, R.color.grey))
+                offlineText.setTextColor(ContextCompat.getColor(context, R.color.grey))
             } else {
                 // Set offline to active
-                offlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.black))
-                offlineText.setTextColor(ContextCompat.getColor(requireContext(), R.color.black))
-
+                offlineIcon.setColorFilter(ContextCompat.getColor(context, R.color.black))
+                offlineText.setTextColor(ContextCompat.getColor(context, R.color.black))
                 // Set online to inactive
-                onlineIcon.setColorFilter(ContextCompat.getColor(requireContext(), R.color.grey))
-                onlineText.setTextColor(ContextCompat.getColor(requireContext(), R.color.grey))
+                onlineIcon.setColorFilter(ContextCompat.getColor(context, R.color.grey))
+                onlineText.setTextColor(ContextCompat.getColor(context, R.color.grey))
             }
         }
     }
-
 
     /**
      * Trip update listener for handling incoming trips
      */
     private val tripUpdateListener = object : TripUpdateListener {
         override fun onTripReceived(trip: Trip, assigned: Boolean) {
-            lifecycleScope.launch {
-                handleTripReceived(trip, assigned)
+            viewLifecycleOwner.lifecycleScope.launch {
+                if (isAdded) {
+                    handleTripReceived(trip, assigned)
+                }
             }
         }
     }
@@ -392,10 +427,11 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      * Handle incoming trip notification
      */
     private suspend fun handleTripReceived(trip: Trip, assigned: Boolean) {
+        if (!isAdded) return
+
         withContext(Dispatchers.Main) {
             // Store trip data
             sharedPreferencesManager.putTrip("current_trip", trip)
-
             stateMutex.withLock {
                 currentTrip = trip
                 isAssigned = assigned
@@ -423,15 +459,19 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      * Start trip notification (sound and vibration)
      */
     private suspend fun startTripNotification() {
+        if (!isAdded) return
+
         stateMutex.withLock {
             if (isRingingActive) return
             isRingingActive = true
         }
 
         withContext(Dispatchers.Main) {
+            val ctx = context ?: return@withContext
+
             // Start audio notification
             if (mediaPlayer == null) {
-                mediaPlayer = MediaPlayer.create(requireContext(), R.raw.quietly_brilliant)
+                mediaPlayer = MediaPlayer.create(ctx, R.raw.quietly_brilliant)
                 mediaPlayer?.isLooping = true
                 mediaPlayer?.start()
             }
@@ -478,7 +518,7 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      */
     private suspend fun updateTripUI(trip: Trip) {
         withContext(Dispatchers.Main) {
-            if (!::map.isInitialized) return@withContext
+            if (!::map.isInitialized || !isAdded) return@withContext
 
             map.clear()
 
@@ -487,7 +527,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
                 trip.requested_pickup_address_lat,
                 trip.requested_pickup_address_lng
             )
-
             map.addMarker(
                 MarkerOptions()
                     .position(pickupLatLng)
@@ -504,17 +543,20 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      * Add current location marker to map
      */
     private fun addCurrentLocationMarker() {
-        locationJob = lifecycleScope.launch {
+        locationJob = viewLifecycleOwner.lifecycleScope.launch {
             try {
+                if (!isAdded) return@launch
+
                 val location = getCurrentLocation()
                 location?.let { loc ->
                     withContext(Dispatchers.Main) {
-                        val userLatLng = LatLng(loc.latitude, loc.longitude)
-                        val markerOptions = MarkerOptions()
-                            .position(userLatLng)
-                            .icon(BitmapDescriptorFactory.fromResource(R.drawable.small_taxi_car_optimized))
-
-                        map.addMarker(markerOptions)
+                        if (isAdded && ::map.isInitialized) {
+                            val userLatLng = LatLng(loc.latitude, loc.longitude)
+                            val markerOptions = MarkerOptions()
+                                .position(userLatLng)
+                                .icon(BitmapDescriptorFactory.fromResource(R.drawable.small_taxi_car_optimized))
+                            map.addMarker(markerOptions)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -529,8 +571,10 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     @SuppressLint("MissingPermission")
     private suspend fun getCurrentLocation(): Location? {
         return withContext(Dispatchers.Main) {
+            val ctx = context ?: return@withContext null
+
             if (ActivityCompat.checkSelfPermission(
-                    requireContext(),
+                    ctx,
                     Manifest.permission.ACCESS_FINE_LOCATION
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
@@ -543,7 +587,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
                 fusedLocationClient.lastLocation.addOnSuccessListener { location ->
                     currentLocation = location
                 }
-
                 // Wait for location callback
                 delay(1000)
                 currentLocation
@@ -567,7 +610,9 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      * Map ready callback
      */
     override fun onMapReady(googleMap: GoogleMap) {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
+            if (!isAdded) return@launch
+
             stateMutex.withLock {
                 map = googleMap
                 isMapReady = true
@@ -575,7 +620,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
 
             // Process pending trip if available
             val pending = stateMutex.withLock { pendingTrip }
-
             if (pending != null) {
                 updateTripUI(pending)
                 stateMutex.withLock { pendingTrip = null }
@@ -591,16 +635,19 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     @SuppressLint("MissingPermission")
     private suspend fun enableMapLocation() {
         withContext(Dispatchers.Main) {
+            val ctx = context ?: return@withContext
+
             if (ActivityCompat.checkSelfPermission(
-                    requireContext(),
+                    ctx,
                     Manifest.permission.ACCESS_FINE_LOCATION
                 ) == PackageManager.PERMISSION_GRANTED
             ) {
-                map.isMyLocationEnabled = true
-
-                // Center map on user location
-                lifecycleScope.launch {
-                    centerMapOnUserLocation()
+                if (::map.isInitialized && isAdded) {
+                    map.isMyLocationEnabled = true
+                    // Center map on user location
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        centerMapOnUserLocation()
+                    }
                 }
             } else {
                 requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 1)
@@ -613,13 +660,17 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      */
     @SuppressLint("MissingPermission")
     private suspend fun centerMapOnUserLocation() {
+        if (!isAdded) return
+
         val location = getCurrentLocation()
         location?.let { loc ->
             withContext(Dispatchers.Main) {
-                val userLatLng = LatLng(loc.latitude, loc.longitude)
-                map.animateCamera(
-                    CameraUpdateFactory.newLatLngZoom(userLatLng, 16f)
-                )
+                if (::map.isInitialized && isAdded) {
+                    val userLatLng = LatLng(loc.latitude, loc.longitude)
+                    map.animateCamera(
+                        CameraUpdateFactory.newLatLngZoom(userLatLng, 16f)
+                    )
+                }
             }
         }
     }
@@ -631,12 +682,13 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
         sender: Any?,
         response: DisplayExtendedStatusResponse?
     ) {
-        lifecycleScope.launch {
-            stateMutex.withLock {
-                currentExtendedStatus = response?.extendedStatusData
+        viewLifecycleOwner.lifecycleScope.launch {
+            if (isAdded) {
+                stateMutex.withLock {
+                    currentExtendedStatus = response?.extendedStatusData
+                }
+                updateTaximeterUI(response?.extendedStatusData)
             }
-
-            updateTaximeterUI(response?.extendedStatusData)
         }
     }
 
@@ -645,6 +697,8 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      */
     private suspend fun updateTaximeterUI(extendedStatus: ExtendedStatus?) {
         withContext(Dispatchers.Main) {
+            if (!isAdded || !::statusCode.isInitialized) return@withContext
+
             // Update status code
             statusCode.text = extendedStatus?.StatusCode?.let { statusCode ->
                 when (statusCode) {
@@ -658,7 +712,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
             // Update fare amount
             val shouldShowFare = extendedStatus?.StatusCode == TaximeterStatusCodes.Hired ||
                     extendedStatus?.StatusCode == TaximeterStatusCodes.Stopped
-
             currentFareAmount.text = if (shouldShowFare) {
                 "${extendedStatus?.CurrentFareAmount ?: 0} ALL"
             } else {
@@ -674,16 +727,16 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      * Handle current fare response
      */
     override fun onCurrentFareResponse(sender: Any?, fare: CurrentFareResponse?) {
-        lifecycleScope.launch {
-            val trip = stateMutex.withLock { currentTrip }
-
-            Log.d(
-                "DashboardFragment",
-                "Current Fare Response: ${fare?.currentFareAmount}, Trip ID: ${trip?.id}"
-            )
-
-            // TODO: Handle fare updates if needed
-            // This could be used to update trip fare in real-time
+        viewLifecycleOwner.lifecycleScope.launch {
+            if (isAdded) {
+                val trip = stateMutex.withLock { currentTrip }
+                Log.d(
+                    "DashboardFragment",
+                    "Current Fare Response: ${fare?.currentFareAmount}, Trip ID: ${trip?.id}"
+                )
+                // TODO: Handle fare updates if needed
+                // This could be used to update trip fare in real-time
+            }
         }
     }
 
@@ -704,18 +757,33 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     }
 
     /**
-     * Show toast message on main thread
+     * Show toast message safely checking fragment state
      */
     private fun showToast(message: String) {
+        // Check if fragment is still attached before showing toast
+        if (!isAdded) {
+            Log.w("DashboardFragment", "Fragment not attached, skipping toast: $message")
+            return
+        }
+
+        val ctx = context
+        if (ctx == null) {
+            Log.w("DashboardFragment", "Context not available, skipping toast: $message")
+            return
+        }
+
         if (Looper.myLooper() == Looper.getMainLooper()) {
-            Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, message, Toast.LENGTH_SHORT).show()
         } else {
             Handler(Looper.getMainLooper()).post {
-                Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
+                if (isAdded) { // Check again on main thread
+                    context?.let { safeContext ->
+                        Toast.makeText(safeContext, message, Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
     }
-
 
     /**
      * Logger interface implementation
@@ -731,11 +799,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      * Cleanup resources and cancel running jobs
      */
     private fun cleanup() {
-        // Cancel all running jobs
-        initializationJob?.cancel()
-        statusUpdateJob?.cancel()
-        locationJob?.cancel()
-
         // Stop notifications
         lifecycleScope.launch {
             stopTripNotification()

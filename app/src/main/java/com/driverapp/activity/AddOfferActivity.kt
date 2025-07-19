@@ -25,6 +25,8 @@ import com.digitax.android.libcomtax2.taximeter.messages.TripDetailsExtendedResp
 import com.digitax.android.libcomtax2.taximeter.objects.ExtendedStatus
 import com.digitax.android.libcomtax2.taximeter.objects.TaximeterStatusCodes
 import com.driverapp.R
+import com.driverapp.handlers.OnlineStatusHandler
+import com.driverapp.handlers.ShiftHandler
 import com.driverapp.models.LocationData
 import com.driverapp.models.OffersData
 import com.driverapp.models.StoreForFaitTripBody
@@ -59,6 +61,8 @@ class AddOfferActivity :
 
     // region Class Member Variables
     private lateinit var sharedPreferencesManager: SharedPreferencesManager
+    private lateinit var onlineStatusHandler: OnlineStatusHandler
+    private lateinit var shiftHandler: ShiftHandler
     private var taximeterManagerr: TaximeterManager? = null
     private var taxiModelAgentt: TaxiModelAgent? = null
     private lateinit var recyclerView: RecyclerView
@@ -105,6 +109,8 @@ class AddOfferActivity :
      */
     private fun initializeComponents() {
         sharedPreferencesManager = SharedPreferencesManager(this)
+        onlineStatusHandler = OnlineStatusHandler(this, lifecycleScope)
+        shiftHandler = ShiftHandler(this, lifecycleScope, onlineStatusHandler)
     }
 
     /**
@@ -297,6 +303,11 @@ class AddOfferActivity :
         if (!isTaximeterInitialized) {
             showToast("Taximeter not initialized")
             return
+        }
+
+        // TODO: Make this work
+        if (!shiftHandler.isShiftActive()) {
+            shiftHandler.startShift()
         }
 
         // Validate taximeter status
