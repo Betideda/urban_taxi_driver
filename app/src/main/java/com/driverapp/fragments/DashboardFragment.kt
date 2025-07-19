@@ -35,10 +35,9 @@ import com.digitax.android.libcomtax2.taximeter.objects.TaximeterStatusCodes
 import com.digitax.protocols.ILoggerHandler
 import com.digitax.protocols.LogEventArgs
 import com.driverapp.R
+import com.driverapp.handlers.OnlineStatusHandler
 import com.driverapp.models.TripEventManager
 import com.driverapp.models.TripUpdateListener
-import com.driverapp.networkApi.Api
-import com.driverapp.networkApi.models.OnlineStatusBody
 import com.driverapp.networkApi.models.Trip
 import com.driverapp.utils.DigitaxTaximeterInitializer
 import com.driverapp.utils.SharedPreferencesManager
@@ -52,7 +51,6 @@ import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MarkerOptions
-import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -60,9 +58,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
 
 /**
  * DashboardFragment serves as the main driver interface displaying map, trip information,
@@ -90,6 +85,7 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     private lateinit var sharedPreferencesManager: SharedPreferencesManager
     private lateinit var vibrator: Vibrator
     private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var onlineStatusHandler: OnlineStatusHandler
     // endregion
 
     // region Taximeter Components
@@ -119,10 +115,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     private var locationJob: Job? = null
     // endregion
 
-    // region Authentication
-    private val authToken: String
-        get() = "Bearer ${sharedPreferencesManager.getString("token", "")}"
-    // endregion
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -143,6 +135,12 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     override fun onResume() {
         super.onResume()
         TripEventManager.addListener(tripUpdateListener)
+
+        // Load and display current status
+        val currentStatus = onlineStatusHandler.isOnline()
+        lifecycleScope.launch {
+            updateStatusUI(currentStatus)
+        }
 
         // Request taximeter status update if available
         lifecycleScope.launch {
@@ -167,6 +165,7 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
         sharedPreferencesManager = SharedPreferencesManager(requireContext())
         vibrator = requireContext().getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireContext())
+        onlineStatusHandler = OnlineStatusHandler(requireContext(), lifecycleScope)
     }
 
     /**
@@ -321,24 +320,35 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
             isProcessingOnlineStatus = true
         }
 
-        try {
-            // Update UI immediately for better UX
-            updateStatusUI(isOnline)
+        // Update UI immediately for better UX
+        updateStatusUI(isOnline)
 
-            // Vibrate for feedback
-            vibrate()
+        // Vibrate for feedback
+        vibrate()
 
-            // Update status on backend
-            updateOnlineStatus(isOnline)
+        // Use the handler to manage status
+        onlineStatusHandler.setOnlineStatus(
+            isOnline,
+            object : OnlineStatusHandler.StatusChangeCallback {
+                override fun onStatusChanged(
+                    isOnline: Boolean,
+                    success: Boolean,
+                    message: String?
+                ) {
+                    lifecycleScope.launch {
+                        stateMutex.withLock {
+                            isProcessingOnlineStatus = false
+                        }
 
-        } catch (e: Exception) {
-            Log.e("DashboardFragment", "Status change failed: ${e.message}")
-            showToast("Failed to update status")
-        } finally {
-            stateMutex.withLock {
-                isProcessingOnlineStatus = false
-            }
-        }
+                        message?.let { showToast(it) }
+
+                        // Revert UI if failed
+                        if (!success) {
+                            updateStatusUI(!isOnline)
+                        }
+                    }
+                }
+            })
     }
 
     /**
@@ -366,51 +376,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
         }
     }
 
-    /**
-     * Update online status on backend
-     */
-    private suspend fun updateOnlineStatus(isOnline: Boolean) {
-        withContext(Dispatchers.IO) {
-            val body = OnlineStatusBody(isOnline)
-
-            Api.retrofitService.onlineStatus(authToken, body)
-                .enqueue(object : Callback<okhttp3.ResponseBody> {
-                    override fun onResponse(
-                        call: Call<okhttp3.ResponseBody>,
-                        response: Response<okhttp3.ResponseBody>
-                    ) {
-                        lifecycleScope.launch {
-                            handleOnlineStatusResponse(response, isOnline)
-                        }
-                    }
-
-                    override fun onFailure(call: Call<okhttp3.ResponseBody>, t: Throwable) {
-                        lifecycleScope.launch {
-                            Log.e("DashboardFragment", "Online status API failure: ${t.message}")
-                            showToast("Network error: ${t.localizedMessage}")
-                        }
-                    }
-                })
-        }
-    }
-
-    /**
-     * Handle online status API response
-     */
-    private suspend fun handleOnlineStatusResponse(
-        response: Response<okhttp3.ResponseBody>,
-        isOnline: Boolean
-    ) {
-        withContext(Dispatchers.Main) {
-            if (response.isSuccessful) {
-                val statusText = if (isOnline) "online" else "offline"
-                showToast("Successfully set $statusText")
-            } else {
-                showToast("Failed to set status: ${response.message()}")
-                // TODO: Revert UI changes if API call failed
-            }
-        }
-    }
 
     /**
      * Trip update listener for handling incoming trips
@@ -447,7 +412,7 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
 
             // Update UI
             if (isMapReady) {
-                updateTripUI(trip, assigned)
+                updateTripUI(trip)
             } else {
                 pendingTrip = trip
             }
@@ -511,7 +476,7 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     /**
      * Update map and UI with trip information
      */
-    private suspend fun updateTripUI(trip: Trip, assigned: Boolean) {
+    private suspend fun updateTripUI(trip: Trip) {
         withContext(Dispatchers.Main) {
             if (!::map.isInitialized) return@withContext
 
@@ -538,7 +503,7 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     /**
      * Add current location marker to map
      */
-    private suspend fun addCurrentLocationMarker() {
+    private fun addCurrentLocationMarker() {
         locationJob = lifecycleScope.launch {
             try {
                 val location = getCurrentLocation()
@@ -610,10 +575,9 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
 
             // Process pending trip if available
             val pending = stateMutex.withLock { pendingTrip }
-            val assigned = stateMutex.withLock { isAssigned }
 
             if (pending != null) {
-                updateTripUI(pending, assigned)
+                updateTripUI(pending)
                 stateMutex.withLock { pendingTrip = null }
             }
 
@@ -752,14 +716,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
         }
     }
 
-    /**
-     * Show snackbar message
-     */
-    private fun showSnackbar(message: String) {
-        if (isAdded && view != null) {
-            Snackbar.make(requireView(), message, Snackbar.LENGTH_SHORT).show()
-        }
-    }
 
     /**
      * Logger interface implementation
@@ -767,7 +723,7 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     override fun Log(lea: LogEventArgs?) {
         lea?.let {
             val log = "[${it.Data}] ${it.Tag}"
-            android.util.Log.d("TaximeterLog", log)
+            Log.d("TaximeterLog", log)
         }
     }
 
