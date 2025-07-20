@@ -49,7 +49,7 @@ data class GenericResponse(
 )
 
 data class OnlineStatusBody(
-    val isOnline: Boolean
+    val is_online: Boolean
 )
 
 data class TaximeterStatusBody(

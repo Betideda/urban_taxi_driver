@@ -30,6 +30,9 @@ import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ShiftsFragment : Fragment(),
     DisplayExtendedStatusListener,
@@ -319,7 +322,13 @@ class ShiftsFragment : Fragment(),
         sender: Any?,
         response: LastClosedShiftDetailsResponse?
     ) {
+        // FIXME: This listener is fired twice
+        Log.d("CLOSE_SHIFT_SENDER", sender?.toString() ?: "N/A")
+
         response?.let { shiftResponse ->
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+            val currentDateTime = dateFormat.format(Date())
+
             val shiftDetails = shiftResponse.fullShiftDetails
             val startDetails = shiftDetails?.ShiftInfoStart
             val endDetails = shiftDetails?.ShiftInfoEnd
@@ -327,39 +336,46 @@ class ShiftsFragment : Fragment(),
             // Create ShiftInfo object
             val shiftInfo = ShiftInfo(
                 // General Information
-                taximeterShiftId = (shiftDetails?.ShiftConsecutiveNumber ?: "N/A").toString(),
+                taximeter_shift_id = (shiftDetails?.ShiftConsecutiveNumber ?: "0").toString(),
 
                 // Start Info
-                startInfoTripsQuantity = (startDetails?.TripsQuantity ?: "N/A").toString(),
-                startInfoUnitsQuantity = (startDetails?.UnitsQuantity ?: "N/A").toString(),
-                startInfoTotalDistance = (startDetails?.TotalDistance ?: "N/A").toString(),
-                startInfoHiredDistance = (startDetails?.HiredDistance ?: "N/A").toString(),
-                startInfoForHireDistance = (startDetails?.ForHireDistance ?: "N/A").toString(),
-                startInfoBlackTripDistance = (startDetails?.BlackTripDistance ?: "N/A").toString(),
-                startInfoWaitingTime = (startDetails?.WaitingTime ?: "N/A").toString(),
-                startInfoFareAmount = (startDetails?.FareAmount ?: "N/A").toString(),
-                startInfoExtrasAmount = (startDetails?.ExtrasAmount ?: "N/A").toString(),
-                startInfoCreditCardAmount = (startDetails?.CreditCardAmount ?: "N/A").toString(),
-                startInfoTaxAmount = (startDetails?.TaxAmount ?: "N/A").toString(),
-                startInfoTipsAmount = (startDetails?.TipsAmount ?: "N/A").toString(),
+                start_info_trips_quantity = (startDetails?.TripsQuantity ?: "0").toString(),
+                start_info_units_quantity = (startDetails?.UnitsQuantity ?: "0").toString(),
+                start_info_total_distance = (startDetails?.TotalDistance ?: "0").toString(),
+                start_info_hired_distance = (startDetails?.HiredDistance ?: "0").toString(),
+                start_info_for_hire_distance = (startDetails?.ForHireDistance ?: "0").toString(),
+                start_info_black_trip_distance = (startDetails?.BlackTripDistance
+                    ?: "N/A").toString(),
+                start_info_waiting_time = (startDetails?.WaitingTime ?: "0").toString(),
+                start_info_fare_amount = (startDetails?.FareAmount ?: "0").toString(),
+                start_info_extras_amount = (startDetails?.ExtrasAmount ?: "0").toString(),
+                start_info_credit_card_amount = (startDetails?.CreditCardAmount
+                    ?: "0").toString(),
+                start_info_tax_amount = (startDetails?.TaxAmount ?: "0").toString(),
+                start_info_tips_amount = (startDetails?.TipsAmount ?: "0").toString(),
 
                 // End Info
-                endInfoTripsQuantity = (endDetails?.TripsQuantity ?: "N/A").toString(),
-                endInfoUnitsQuantity = (endDetails?.UnitsQuantity ?: "N/A").toString(),
-                endInfoTotalDistance = (endDetails?.TotalDistance ?: "N/A").toString(),
-                endInfoHiredDistance = (endDetails?.HiredDistance ?: "N/A").toString(),
-                endInfoForHireDistance = (endDetails?.ForHireDistance ?: "N/A").toString(),
-                endInfoBlackTripDistance = (endDetails?.BlackTripDistance ?: "N/A").toString(),
-                endInfoWaitingTime = (endDetails?.WaitingTime ?: "N/A").toString(),
-                endInfoFareAmount = (endDetails?.FareAmount ?: "N/A").toString(),
-                endInfoExtrasAmount = (endDetails?.ExtrasAmount ?: "N/A").toString(),
-                endInfoCreditCardAmount = (endDetails?.CreditCardAmount ?: "N/A").toString(),
-                endInfoTaxAmount = (endDetails?.TaxAmount ?: "N/A").toString(),
-                endInfoTipsAmount = (endDetails?.TipsAmount ?: "N/A").toString(),
+                end_info_trips_quantity = (endDetails?.TripsQuantity ?: "0").toString(),
+                end_info_units_quantity = (endDetails?.UnitsQuantity ?: "0").toString(),
+                end_info_total_distance = (endDetails?.TotalDistance ?: "0").toString(),
+                end_info_hired_distance = (endDetails?.HiredDistance ?: "0").toString(),
+                end_info_for_hire_distance = (endDetails?.ForHireDistance ?: "0").toString(),
+                end_info_black_trip_distance = (endDetails?.BlackTripDistance ?: "0").toString(),
+                end_info_waiting_time = (endDetails?.WaitingTime ?: "0").toString(),
+                end_info_fare_amount = (endDetails?.FareAmount ?: "0").toString(),
+                end_info_extras_amount = (endDetails?.ExtrasAmount ?: "0").toString(),
+                end_info_credit_card_amount = (endDetails?.CreditCardAmount ?: "0").toString(),
+                end_info_tax_amount = (endDetails?.TaxAmount ?: "0").toString(),
+                end_info_tips_amount = (endDetails?.TipsAmount ?: "0").toString(),
 
                 // Timestamps
-                shiftStartedAt = (shiftDetails?.ShiftStartDate ?: "N/A").toString(),
-                shiftEndedAt = (shiftDetails?.ShiftEndDate ?: "N/A").toString()
+                shift_started_at = shiftDetails?.ShiftStartDate?.let { calendar ->
+                    dateFormat.format(calendar.time) // Convert Calendar to Date then format
+                } ?: currentDateTime,
+
+                shift_ended_at = shiftDetails?.ShiftEndDate?.let { calendar ->
+                    dateFormat.format(calendar.time) // Convert Calendar to Date then format
+                } ?: currentDateTime
             )
 
             // Use shift handler to send info

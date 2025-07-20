@@ -74,7 +74,11 @@ class TaxiControlFragment : Fragment(), ILoggerHandler, DisplayExtendedStatusLis
             try {
                 agent?.startForfaitTrip(etFareAmount.text.toString()) // becomes 00005000
             } catch (e: Exception) {
-                Toast.makeText(requireContext(), "Trip start failed: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    requireContext(),
+                    "Trip start failed: ${e.message}",
+                    Toast.LENGTH_LONG
+                ).show()
                 Log.e("TaxiControl", "Error starting trip", e)
             }
         }
@@ -95,7 +99,7 @@ class TaxiControlFragment : Fragment(), ILoggerHandler, DisplayExtendedStatusLis
         }
 
         askLastClosedShiftDetails.setOnClickListener {
-            agent?.askLastClosedShiftDetails()
+            //agent?.askLastClosedShiftDetails()
         }
 
         askCurrentFareAmount.setOnClickListener {
@@ -109,7 +113,11 @@ class TaxiControlFragment : Fragment(), ILoggerHandler, DisplayExtendedStatusLis
         }
 
         btnStatus.setOnClickListener {
-            Toast.makeText(requireContext(), "Status: ${exStat?.StatusCode ?: "N/A"}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                requireContext(),
+                "Status: ${exStat?.StatusCode ?: "N/A"}",
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         return view
@@ -127,7 +135,9 @@ class TaxiControlFragment : Fragment(), ILoggerHandler, DisplayExtendedStatusLis
                     agent = taxiModelAgent
 
                     taximeterManager.OnDisplayExtendedStatusReceived.registerListener(this@TaxiControlFragment)
-                    taximeterManager.OnOldTripsShiftsSearchCompleteResponseReceived.registerListener(this@TaxiControlFragment)
+                    taximeterManager.OnOldTripsShiftsSearchCompleteResponseReceived.registerListener(
+                        this@TaxiControlFragment
+                    )
                     taximeterManager.OnLastClosedShiftDetailsResponseReceived.registerListener(this@TaxiControlFragment)
                     taximeterManager.OnCurrentFareResponseReceived.registerListener(this@TaxiControlFragment)
                     taximeterManager.OnTaximeterStatusResponseReceived.registerListener(this@TaxiControlFragment)
@@ -143,7 +153,10 @@ class TaxiControlFragment : Fragment(), ILoggerHandler, DisplayExtendedStatusLis
         println("Digitax Log: ${lea?.LogLevelGet().toString()}")
     }
 
-    override fun onDisplayExtendedStatus(p0: Any?, displayExtendedStatusResponse: DisplayExtendedStatusResponse?) {
+    override fun onDisplayExtendedStatus(
+        p0: Any?,
+        displayExtendedStatusResponse: DisplayExtendedStatusResponse?
+    ) {
         exStat = displayExtendedStatusResponse?.extendedStatusData
         Log.e("TaxiControl", "StatusCode: ${exStat?.StatusCode}")
         Log.e("TaxiControl", "DriverID: ${exStat?.DriverID}")
@@ -152,7 +165,10 @@ class TaxiControlFragment : Fragment(), ILoggerHandler, DisplayExtendedStatusLis
 
     }
 
-    override fun onOldTripsShiftsSearchCompleteResponse(p0: Any?, response: OldTripsShiftsSearchCompleteResponse?) {
+    override fun onOldTripsShiftsSearchCompleteResponse(
+        p0: Any?,
+        response: OldTripsShiftsSearchCompleteResponse?
+    ) {
 
         Log.d("OldTripsShifts", "Destination value: " + response?.destination?.value.toString())
 
@@ -161,15 +177,20 @@ class TaxiControlFragment : Fragment(), ILoggerHandler, DisplayExtendedStatusLis
         Log.d("OldTripsShifts", "JSON body: $json")
     }
 
-    override fun onLastClosedShiftDetailsResponse(p0: Any?, lastClosedShiftDetailsResponse: LastClosedShiftDetailsResponse?) {
+    override fun onLastClosedShiftDetailsResponse(
+        p0: Any?,
+        lastClosedShiftDetailsResponse: LastClosedShiftDetailsResponse?
+    ) {
         val dateFormat = SimpleDateFormat("dd MMMM yyyy HH:mm:ss", Locale.getDefault())
 
-        val fareAmount = lastClosedShiftDetailsResponse?.fullShiftDetails?.ShiftInfoStart?.FareAmount
+        val fareAmount =
+            lastClosedShiftDetailsResponse?.fullShiftDetails?.ShiftInfoStart?.FareAmount
         val driverId = lastClosedShiftDetailsResponse?.fullShiftDetails?.DriverID
         val vehicleId = lastClosedShiftDetailsResponse?.fullShiftDetails?.VehicleID
-        val startDateFormatted = lastClosedShiftDetailsResponse?.fullShiftDetails?.ShiftStartDate?.let {
-            dateFormat.format(it.time)
-        }
+        val startDateFormatted =
+            lastClosedShiftDetailsResponse?.fullShiftDetails?.ShiftStartDate?.let {
+                dateFormat.format(it.time)
+            }
         val endDateFormatted = lastClosedShiftDetailsResponse?.fullShiftDetails?.ShiftEndDate?.let {
             dateFormat.format(it.time)
         }
@@ -199,7 +220,12 @@ class TaxiControlFragment : Fragment(), ILoggerHandler, DisplayExtendedStatusLis
     override fun onCurrentFareResponse(p0: Any?, fare: CurrentFareResponse?) {
         //this here is triggered when it has been started a new trip and is Hired status
         //then we get what is the current fare amount
-        runOnUiThread { Log.d("CUSTOM_LOG", "Current Fare: " + (fare?.currentFareAmount.toString())) }
+        runOnUiThread {
+            Log.d(
+                "CUSTOM_LOG",
+                "Current Fare: " + (fare?.currentFareAmount.toString())
+            )
+        }
     }
 
     override fun onTaximeterStatusResponse(p0: Any?, status: TaximeterStatusResponse?) {
@@ -211,28 +237,49 @@ class TaxiControlFragment : Fragment(), ILoggerHandler, DisplayExtendedStatusLis
 
             val body = TaximeterStatusBody(taxiStatus)
 
-            Api.retrofitService.taximeterStatus(token, body).enqueue(object : Callback<ResponseBody> {
-                override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
-                    if (response.isSuccessful) {
-                        Log.d("TaxiControl", "Taximeter status sent successfully: $taxiStatus")
-                        activity?.runOnUiThread {
-                            Toast.makeText(requireContext(), "Taximeter status sent successfully", Toast.LENGTH_SHORT).show()
-                        }
-                    } else {
-                        Log.e("TaxiControl", "Failed to send taximeter status: ${response.errorBody()?.string()}")
-                        activity?.runOnUiThread {
-                            Toast.makeText(requireContext(), "Failed to send taximeter status: ${response.errorBody()?.string()}", Toast.LENGTH_LONG).show()
+            Api.retrofitService.taximeterStatus(token, body)
+                .enqueue(object : Callback<ResponseBody> {
+                    override fun onResponse(
+                        call: Call<ResponseBody>,
+                        response: Response<ResponseBody>
+                    ) {
+                        if (response.isSuccessful) {
+                            Log.d("TaxiControl", "Taximeter status sent successfully: $taxiStatus")
+                            activity?.runOnUiThread {
+                                Toast.makeText(
+                                    requireContext(),
+                                    "Taximeter status sent successfully",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        } else {
+                            Log.e(
+                                "TaxiControl",
+                                "Failed to send taximeter status: ${response.errorBody()?.string()}"
+                            )
+                            activity?.runOnUiThread {
+                                Toast.makeText(
+                                    requireContext(),
+                                    "Failed to send taximeter status: ${
+                                        response.errorBody()?.string()
+                                    }",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
                         }
                     }
-                }
 
-                override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
-                    Log.e("TaxiControl", "Error sending taximeter status: ${t.message}")
-                    activity?.runOnUiThread {
-                        Toast.makeText(requireContext(), "Error sending taximeter status: ${t.message}", Toast.LENGTH_LONG).show()
+                    override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
+                        Log.e("TaxiControl", "Error sending taximeter status: ${t.message}")
+                        activity?.runOnUiThread {
+                            Toast.makeText(
+                                requireContext(),
+                                "Error sending taximeter status: ${t.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     }
-                }
-            })
+                })
 
         }
     }
