@@ -40,7 +40,8 @@ data class UpdatePasswordBody(
 
 data class SetLocationBody(
     val latitude: Double,
-    val longitude: Double
+    val longitude: Double,
+    val taximeter_status: String?
 )
 
 data class GenericResponse(

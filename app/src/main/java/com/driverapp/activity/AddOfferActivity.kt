@@ -48,6 +48,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import retrofit2.Call
 
 /**
  * AddOfferActivity displays available taxi offers to drivers and handles trip initiation.
@@ -171,7 +172,7 @@ class AddOfferActivity :
                 .getOffers(authToken)
                 .enqueue(object : retrofit2.Callback<OffersData> {
                     override fun onResponse(
-                        call: retrofit2.Call<OffersData>,
+                        call: Call<OffersData>,
                         response: retrofit2.Response<OffersData>
                     ) {
                         lifecycleScope.launch {
@@ -179,7 +180,7 @@ class AddOfferActivity :
                         }
                     }
 
-                    override fun onFailure(call: retrofit2.Call<OffersData>, t: Throwable) {
+                    override fun onFailure(call: Call<OffersData>, t: Throwable) {
                         lifecycleScope.launch {
                             Log.e("AddOfferActivity", "Offers API failure: ${t.message}")
                             showToast("Network error: ${t.localizedMessage}")
@@ -481,7 +482,7 @@ class AddOfferActivity :
                 .requestStoreForFaitTrip("application/json", authToken, body)
                 .enqueue(object : retrofit2.Callback<MyTripData> {
                     override fun onResponse(
-                        call: retrofit2.Call<MyTripData>,
+                        call: Call<MyTripData>,
                         response: retrofit2.Response<MyTripData>
                     ) {
                         lifecycleScope.launch {
@@ -489,7 +490,7 @@ class AddOfferActivity :
                         }
                     }
 
-                    override fun onFailure(call: retrofit2.Call<MyTripData>, t: Throwable) {
+                    override fun onFailure(call: Call<MyTripData>, t: Throwable) {
                         lifecycleScope.launch {
                             Log.e("AddOfferActivity", "Store trip API failure: ${t.message}")
                             showToast("Failed to store trip: ${t.localizedMessage}")
@@ -536,18 +537,9 @@ class AddOfferActivity :
         response: DisplayExtendedStatusResponse?
     ) {
         lifecycleScope.launch {
-            val previousStatus = stateMutex.withLock { currentExtendedStatus }
-
             stateMutex.withLock {
                 currentExtendedStatus = response?.extendedStatusData
                 currentShiftID = response?.extendedStatusData?.ShiftNumber
-            }
-
-            // Check if status actually changed
-            val newStatus = response?.extendedStatusData
-            if (previousStatus?.StatusCode != newStatus?.StatusCode) {
-                // Status changed - send location to backend
-                sendLocationToBackend(newStatus)
             }
 
             Log.d(
@@ -591,15 +583,6 @@ class AddOfferActivity :
                 Toast.makeText(this@AddOfferActivity, message, Toast.LENGTH_SHORT).show()
             }
         }
-    }
-
-    /**
-     * Send location data and taximeter status to the backend
-     */
-    private suspend fun sendLocationToBackend(status: ExtendedStatus?) {
-        // Get current location and send to backend
-        val locationSuccess = getCurrentLocation()
-        // TODO: Make API call sending location data and taximeter status to the backend
     }
 
     /**
