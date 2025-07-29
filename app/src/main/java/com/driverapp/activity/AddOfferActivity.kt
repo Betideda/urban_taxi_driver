@@ -48,11 +48,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.isActive
 import retrofit2.Call
 
 /**
  * AddOfferActivity displays available taxi offers to drivers and handles trip initiation.
- * This activity manages taximeter communication, offer selection, and trip creation workflow.
+ * This activity manages taximeter communication with robust connection handling and automatic reconnection.
  */
 class AddOfferActivity :
     AppCompatActivity(),
@@ -69,20 +70,34 @@ class AddOfferActivity :
     private lateinit var recyclerView: RecyclerView
     private lateinit var backButton: ImageView
 
-    // State management with thread safety
+    // Enhanced state management with thread safety
     private val stateMutex = Mutex()
     private var currentExtendedStatus: ExtendedStatus? = null
     private var currentShiftID: Int? = null
     private var currentTripId: Long? = null
     private var isProcessingTrip = false
     private var isTaximeterInitialized = false
+    private var isConnected = false
+    private var reconnectionAttempts = 0
+    private var lastStatusRequestTime = 0L
 
     // Location data
     private val addressInfo = LocationData("", 0.0, 0.0)
 
-    // Coroutine jobs for cleanup
+    // Enhanced coroutine jobs management
     private var offersJob: Job? = null
     private var tripProcessingJob: Job? = null
+    private var connectionMonitorJob: Job? = null
+    private var reconnectionJob: Job? = null
+    private var heartbeatJob: Job? = null
+
+    // Connection management constants
+    companion object {
+        private const val MAX_RECONNECTION_ATTEMPTS = 5
+        private const val RECONNECTION_DELAY_MS = 3000L
+        private const val HEARTBEAT_INTERVAL_MS = 10000L
+        private const val STATUS_REQUEST_TIMEOUT_MS = 5000L
+    }
 
     // Authentication token
     private val authToken: String
@@ -98,11 +113,20 @@ class AddOfferActivity :
         setupUI()
         initializeTaximeter()
         loadOffers()
+        startConnectionMonitoring()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         cleanup()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Check connection status when resuming
+        lifecycleScope.launch {
+            checkConnectionHealth()
+        }
     }
 
     /**
@@ -129,17 +153,128 @@ class AddOfferActivity :
     }
 
     /**
-     * Initialize taximeter connection asynchronously
+     * Initialize taximeter connection with enhanced error handling
      */
     private fun initializeTaximeter() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
+                stateMutex.withLock {
+                    reconnectionAttempts = 0
+                }
                 initializeDigitaxTaximeter()
             } catch (e: Exception) {
                 Log.e("AddOfferActivity", "Failed to initialize taximeter: ${e.message}")
                 withContext(Dispatchers.Main) {
                     showToast("Failed to initialize taximeter connection")
                 }
+                scheduleReconnection()
+            }
+        }
+    }
+
+    /**
+     * Start connection monitoring and heartbeat
+     */
+    private fun startConnectionMonitoring() {
+        // Start heartbeat monitoring
+        heartbeatJob = lifecycleScope.launch {
+            while (isActive) {
+                delay(HEARTBEAT_INTERVAL_MS)
+                checkConnectionHealth()
+            }
+        }
+
+        // Start connection status monitoring
+        connectionMonitorJob = lifecycleScope.launch {
+            while (isActive) {
+                delay(5000) // Check every 5 seconds
+                monitorConnectionStatus()
+            }
+        }
+    }
+
+    /**
+     * Check connection health with timeout
+     */
+    private suspend fun checkConnectionHealth() {
+        stateMutex.withLock {
+            if (!isTaximeterInitialized || !isConnected) {
+                return
+            }
+        }
+
+        try {
+            val currentTime = System.currentTimeMillis()
+            val timeSinceLastRequest = currentTime - lastStatusRequestTime
+
+            // Only request status if enough time has passed to avoid spamming
+            if (timeSinceLastRequest > STATUS_REQUEST_TIMEOUT_MS) {
+                withContext(Dispatchers.IO) {
+                    taximeterManagerr?.askDisplayExtendedStatus()
+                    stateMutex.withLock {
+                        lastStatusRequestTime = currentTime
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("AddOfferActivity", "Health check failed: ${e.message}")
+            handleConnectionLoss()
+        }
+    }
+
+    /**
+     * Monitor connection status and handle disconnections
+     */
+    private suspend fun monitorConnectionStatus() {
+        stateMutex.withLock {
+            if (isTaximeterInitialized && !isConnected) {
+                Log.w("AddOfferActivity", "Connection lost detected, attempting reconnection")
+                handleConnectionLoss()
+            }
+        }
+    }
+
+    /**
+     * Handle connection loss with automatic reconnection
+     */
+    private suspend fun handleConnectionLoss() {
+        stateMutex.withLock {
+            isConnected = false
+            isTaximeterInitialized = false
+            currentExtendedStatus = null
+        }
+
+        scheduleReconnection()
+    }
+
+    /**
+     * Schedule reconnection attempt with exponential backoff
+     */
+    private fun scheduleReconnection() {
+        reconnectionJob?.cancel()
+        reconnectionJob = lifecycleScope.launch {
+            stateMutex.withLock {
+                if (reconnectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
+                    withContext(Dispatchers.Main) {
+                        showToast("Unable to reconnect to taximeter. Please check connection.")
+                    }
+                    return@launch
+                }
+                reconnectionAttempts++
+            }
+
+            val delay = RECONNECTION_DELAY_MS * reconnectionAttempts
+            Log.d(
+                "AddOfferActivity",
+                "Scheduling reconnection attempt $reconnectionAttempts in ${delay}ms"
+            )
+            delay(delay)
+
+            try {
+                initializeDigitaxTaximeter()
+            } catch (e: Exception) {
+                Log.e("AddOfferActivity", "Reconnection attempt failed: ${e.message}")
+                scheduleReconnection()
             }
         }
     }
@@ -208,27 +343,32 @@ class AddOfferActivity :
     }
 
     /**
-     * Initialize taximeter with proper callback handling
+     * Initialize taximeter with enhanced callback handling and timeouts
      */
     private suspend fun initializeDigitaxTaximeter() {
         withContext(Dispatchers.IO) {
-            DigitaxTaximeterInitializer(this@AddOfferActivity, this@AddOfferActivity)
-                .initialize(object : DigitaxTaximeterInitializer.Callback {
-                    override fun onInitialized(
-                        taximeterManager: TaximeterManager,
-                        taxiModelAgent: TaxiModelAgent
-                    ) {
-                        lifecycleScope.launch {
-                            handleTaximeterInitialized(taximeterManager, taxiModelAgent)
+            try {
+                DigitaxTaximeterInitializer(this@AddOfferActivity, this@AddOfferActivity)
+                    .initialize(object : DigitaxTaximeterInitializer.Callback {
+                        override fun onInitialized(
+                            taximeterManager: TaximeterManager,
+                            taxiModelAgent: TaxiModelAgent
+                        ) {
+                            lifecycleScope.launch {
+                                handleTaximeterInitialized(taximeterManager, taxiModelAgent)
+                            }
                         }
-                    }
 
-                    override fun onConnectionStatusChanged(connected: Boolean) {
-                        lifecycleScope.launch {
-                            handleConnectionStatusChange(connected)
+                        override fun onConnectionStatusChanged(connected: Boolean) {
+                            lifecycleScope.launch {
+                                handleConnectionStatusChange(connected)
+                            }
                         }
-                    }
-                })
+                    })
+            } catch (e: Exception) {
+                Log.e("AddOfferActivity", "Taximeter initialization failed: ${e.message}")
+                throw e
+            }
         }
     }
 
@@ -243,23 +383,35 @@ class AddOfferActivity :
             taximeterManagerr = taximeterManager
             taxiModelAgentt = taxiModelAgent
             isTaximeterInitialized = true
+            reconnectionAttempts = 0 // Reset reconnection attempts on successful connection
         }
 
-        // Register listeners
-        taximeterManager.OnDisplayExtendedStatusReceived.registerListener(this@AddOfferActivity)
-        taximeterManager.OnTripDetailsExtendedResponseReceived.registerListener(this@AddOfferActivity)
+        try {
+            // Register listeners
+            taximeterManager.OnDisplayExtendedStatusReceived.registerListener(this@AddOfferActivity)
+            taximeterManager.OnTripDetailsExtendedResponseReceived.registerListener(this@AddOfferActivity)
 
-        // Request initial status
-        taximeterManager.askDisplayExtendedStatus()
+            // Request initial status with timeout
+            withContext(Dispatchers.IO) {
+                taximeterManager.askDisplayExtendedStatus()
+                stateMutex.withLock {
+                    lastStatusRequestTime = System.currentTimeMillis()
+                }
+            }
 
-        Log.d("AddOfferActivity", "Taximeter initialized successfully")
+            Log.d("AddOfferActivity", "Taximeter initialized successfully")
+        } catch (e: Exception) {
+            Log.e("AddOfferActivity", "Failed to setup taximeter listeners: ${e.message}")
+            throw e
+        }
     }
 
     /**
-     * Handle taximeter connection status changes
+     * Handle taximeter connection status changes with improved logic
      */
     private suspend fun handleConnectionStatusChange(connected: Boolean) {
         stateMutex.withLock {
+            isConnected = connected
             if (!connected) {
                 isTaximeterInitialized = false
                 currentExtendedStatus = null
@@ -267,102 +419,173 @@ class AddOfferActivity :
         }
 
         Log.d("AddOfferActivity", "Taximeter connection: $connected")
+
+        if (!connected) {
+            scheduleReconnection()
+        } else {
+            // Connection restored, reset reconnection attempts
+            stateMutex.withLock {
+                reconnectionAttempts = 0
+            }
+        }
     }
 
     /**
-     * Handle offer acceptance and trip initiation
+     * Handle offer acceptance and trip initiation with enhanced error handling
      */
     override fun onStartEndButtonClick(zoneOffer: Zone, acceptButton: Button) {
         // Prevent multiple simultaneous trip processing
-        if (isProcessingTrip) {
-            showToast("Trip is already being processed")
-            return
-        }
+        lifecycleScope.launch {
+            val alreadyProcessing = stateMutex.withLock {
+                if (isProcessingTrip) {
+                    true
+                } else {
+                    isProcessingTrip = true
+                    false
+                }
+            }
 
-        tripProcessingJob = lifecycleScope.launch {
-            try {
-                processTrip(zoneOffer)
-            } catch (e: Exception) {
-                Log.e("AddOfferActivity", "Trip processing failed: ${e.message}")
-                showToast("Failed to process trip: ${e.localizedMessage}")
-            } finally {
-                stateMutex.withLock {
-                    isProcessingTrip = false
+            if (alreadyProcessing) {
+                showToast("Trip is already being processed")
+                return@launch
+            }
+
+            tripProcessingJob?.cancel()
+            tripProcessingJob = lifecycleScope.launch {
+                try {
+                    processTrip(zoneOffer)
+                } catch (e: Exception) {
+                    Log.e("AddOfferActivity", "Trip processing failed: ${e.message}")
+                    showToast("Failed to process trip: ${e.localizedMessage}")
+                } finally {
+                    stateMutex.withLock {
+                        isProcessingTrip = false
+                    }
                 }
             }
         }
     }
 
     /**
-     * Process trip creation with proper async handling
+     * Process trip creation with enhanced connection validation
      */
     private suspend fun processTrip(zoneOffer: Zone) {
-        stateMutex.withLock {
-            isProcessingTrip = true
+        // Validate connection status
+        val connectionValid = stateMutex.withLock {
+            isTaximeterInitialized && isConnected
         }
 
-        if (!isTaximeterInitialized) {
-            showToast("Taximeter not initialized")
+        if (!connectionValid) {
+            showToast("Taximeter not connected. Please wait for reconnection.")
             return
         }
 
-        // TODO: Make this work
+        // Ensure shift is active
         if (!shiftHandler.isShiftActive()) {
             shiftHandler.startShift()
+            delay(1000) // Give time for shift to start
         }
 
-        // Validate taximeter status
-        val extendedStatus = stateMutex.withLock { currentExtendedStatus }
-        if (extendedStatus?.StatusCode != TaximeterStatusCodes.ForHire) {
+        // Validate taximeter status with retry logic
+        var statusValidationAttempts = 0
+        var statusValid = false
+
+        while (statusValidationAttempts < 3 && !statusValid) {
+            val extendedStatus = stateMutex.withLock { currentExtendedStatus }
+
+            if (extendedStatus?.StatusCode == TaximeterStatusCodes.ForHire) {
+                statusValid = true
+            } else {
+                statusValidationAttempts++
+                if (statusValidationAttempts < 3) {
+                    // Request status update and wait
+                    withContext(Dispatchers.IO) {
+                        taximeterManagerr?.askDisplayExtendedStatus()
+                    }
+                    delay(1000)
+                }
+            }
+        }
+
+        if (!statusValid) {
             showToast("Taximeter must be in ForHire status to start trip")
             return
         }
 
-        // Start forfait trip
-        val success = startForfaitTrip(zoneOffer)
+        // Start forfait trip with retry logic
+        val success = startForfaitTripWithRetry(zoneOffer)
         if (!success) {
-            showToast("Failed to start forfait trip")
+            showToast("Failed to start forfait trip after multiple attempts")
             return
         }
 
         // Wait for taximeter to update and get trip details
         delay(100)
-        requestTaximeterUpdates()
+        requestTaximeterUpdatesWithRetry()
 
-        // Wait for trip details to be available
-        delay(2500)
+        // Wait for trip details to be available with timeout
+        var waitTime = 0
+        val maxWaitTime = 5000 // 5 seconds
+
+        while (waitTime < maxWaitTime) {
+            val tripId = stateMutex.withLock { currentTripId }
+            if (tripId != null) break
+            delay(500)
+            waitTime += 500
+        }
 
         // Store trip in backend
         storeTrip(zoneOffer)
     }
 
     /**
-     * Start forfait trip with error handling
+     * Start forfait trip with retry mechanism
      */
-    private suspend fun startForfaitTrip(zoneOffer: Zone): Boolean {
-        return withContext(Dispatchers.IO) {
+    private suspend fun startForfaitTripWithRetry(zoneOffer: Zone): Boolean {
+        repeat(3) { attempt ->
             try {
-                val price = zoneOffer.price.toDoubleOrNull()?.toInt() ?: 0
-                taxiModelAgentt?.startForfaitTrip(price.toString())
-                Log.d("AddOfferActivity", "Started forfait trip with price: $price")
-                true
+                val success = withContext(Dispatchers.IO) {
+                    val price = zoneOffer.price.toDoubleOrNull()?.toInt() ?: 0
+                    taxiModelAgentt?.startForfaitTrip(price.toString())
+                    true
+                }
+
+                if (success) {
+                    Log.d("AddOfferActivity", "Started forfait trip with price: ${zoneOffer.price}")
+                    return true
+                }
             } catch (e: Exception) {
-                Log.e("AddOfferActivity", "Failed to start forfait trip: ${e.message}")
-                false
+                Log.e(
+                    "AddOfferActivity",
+                    "Forfait trip attempt ${attempt + 1} failed: ${e.message}"
+                )
+                if (attempt < 2) {
+                    delay(1000) // Wait before retry
+                }
             }
         }
+        return false
     }
 
     /**
-     * Request taximeter status and trip details updates
+     * Request taximeter status and trip details updates with retry
      */
-    private suspend fun requestTaximeterUpdates() {
-        withContext(Dispatchers.IO) {
+    private suspend fun requestTaximeterUpdatesWithRetry() {
+        repeat(3) { attempt ->
             try {
-                taximeterManagerr?.askTripDetailsExtended()
-                taximeterManagerr?.askDisplayExtendedStatus()
+                withContext(Dispatchers.IO) {
+                    taximeterManagerr?.askTripDetailsExtended()
+                    taximeterManagerr?.askDisplayExtendedStatus()
+                }
+                return // Success, exit retry loop
             } catch (e: Exception) {
-                Log.e("AddOfferActivity", "Failed to request taximeter updates: ${e.message}")
+                Log.e(
+                    "AddOfferActivity",
+                    "Update request attempt ${attempt + 1} failed: ${e.message}"
+                )
+                if (attempt < 2) {
+                    delay(500) // Wait before retry
+                }
             }
         }
     }
@@ -403,7 +626,7 @@ class AddOfferActivity :
     }
 
     /**
-     * Get current location with permission handling
+     * Get current location with improved error handling
      */
     private suspend fun getCurrentLocation(): Boolean {
         return withContext(Dispatchers.Main) {
@@ -423,18 +646,28 @@ class AddOfferActivity :
             try {
                 val fusedLocationClient =
                     LocationServices.getFusedLocationProviderClient(this@AddOfferActivity)
-                val location = fusedLocationClient.lastLocation
+                val locationTask = fusedLocationClient.lastLocation
 
-                var success = false
-                location.addOnSuccessListener { loc: Location? ->
+                var locationReceived = false
+                locationTask.addOnSuccessListener { loc: Location? ->
                     lifecycleScope.launch {
-                        success = processLocation(loc)
+                        locationReceived = processLocation(loc)
                     }
+                }.addOnFailureListener { e ->
+                    Log.e("AddOfferActivity", "Location request failed: ${e.message}")
+                    locationReceived = false
                 }
 
-                // Wait a bit for location callback
-                delay(1000)
-                success
+                // Wait for location callback with timeout
+                var waitTime = 0
+                val maxWaitTime = 3000 // 3 seconds
+
+                while (waitTime < maxWaitTime && !locationReceived) {
+                    delay(100)
+                    waitTime += 100
+                }
+
+                locationReceived
             } catch (e: Exception) {
                 Log.e("AddOfferActivity", "Location error: ${e.message}")
                 false
@@ -530,7 +763,7 @@ class AddOfferActivity :
     }
 
     /**
-     * Handle taximeter extended status updates
+     * Handle taximeter extended status updates with connection validation
      */
     override fun onDisplayExtendedStatus(
         sender: Any?,
@@ -540,6 +773,7 @@ class AddOfferActivity :
             stateMutex.withLock {
                 currentExtendedStatus = response?.extendedStatusData
                 currentShiftID = response?.extendedStatusData?.ShiftNumber
+                isConnected = true // Status received means we're connected
             }
 
             Log.d(
@@ -563,6 +797,7 @@ class AddOfferActivity :
                 if (currentShiftID == null) {
                     currentShiftID = response?.extendedTripDetails?.ShiftSequentialNumber?.toInt()
                 }
+                isConnected = true // Trip details received means we're connected
             }
 
             Log.d(
@@ -586,16 +821,23 @@ class AddOfferActivity :
     }
 
     /**
-     * Cleanup resources and cancel running jobs
+     * Enhanced cleanup with proper job cancellation and resource management
      */
     private fun cleanup() {
         // Cancel all running jobs
         offersJob?.cancel()
         tripProcessingJob?.cancel()
+        connectionMonitorJob?.cancel()
+        reconnectionJob?.cancel()
+        heartbeatJob?.cancel()
 
-        // Unregister listeners
-        taximeterManagerr?.OnDisplayExtendedStatusReceived?.unregisterListener(this)
-        taximeterManagerr?.OnTripDetailsExtendedResponseReceived?.unregisterListener(this)
+        // Unregister listeners safely
+        try {
+            taximeterManagerr?.OnDisplayExtendedStatusReceived?.unregisterListener(this)
+            taximeterManagerr?.OnTripDetailsExtendedResponseReceived?.unregisterListener(this)
+        } catch (e: Exception) {
+            Log.e("AddOfferActivity", "Error unregistering listeners: ${e.message}")
+        }
 
         // Clear references
         taximeterManagerr = null

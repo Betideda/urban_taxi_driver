@@ -270,6 +270,7 @@ class ShiftsFragment : Fragment(),
             if (!connected) {
                 isTaximeterInitialized = false
                 extendedStatus = null
+                initializeTaximeter()
             }
             Log.d("ShiftsFragment", "Taximeter connection: $connected")
         }

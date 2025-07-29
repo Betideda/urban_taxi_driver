@@ -58,10 +58,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.isActive
 
 /**
  * DashboardFragment serves as the main driver interface displaying map, trip information,
- * and taximeter status. Handles online/offline status, trip notifications, and location tracking.
+ * and taximeter status. Handles online/offline status, trip notifications, and location tracking
+ * with robust taximeter connection management.
  */
 class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     CurrentFareResponseListener, DisplayExtendedStatusListener {
@@ -93,13 +95,16 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     private var taxiModelAgent: TaxiModelAgent? = null
     // endregion
 
-    // region State Management with Thread Safety
+    // region Enhanced State Management with Thread Safety
     private val stateMutex = Mutex()
     private var currentExtendedStatus: ExtendedStatus? = null
     private var isTaximeterInitialized = false
+    private var isConnected = false
     private var isMapReady = false
     private var isRingingActive = false
     private var isProcessingOnlineStatus = false
+    private var reconnectionAttempts = 0
+    private var lastStatusRequestTime = 0L
     // endregion
 
     // region Notification System
@@ -109,11 +114,22 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     private var isAssigned = false
     // endregion
 
-    // region Coroutine Jobs
+    // region Enhanced Coroutine Jobs Management
     private var initializationJob: Job? = null
     private var statusUpdateJob: Job? = null
     private var locationJob: Job? = null
+    private var connectionMonitorJob: Job? = null
+    private var reconnectionJob: Job? = null
+    private var heartbeatJob: Job? = null
     // endregion
+
+    // Connection management constants (same as AddOfferActivity)
+    companion object {
+        private const val MAX_RECONNECTION_ATTEMPTS = 5
+        private const val RECONNECTION_DELAY_MS = 3000L
+        private const val HEARTBEAT_INTERVAL_MS = 10000L
+        private const val STATUS_REQUEST_TIMEOUT_MS = 5000L
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -128,6 +144,7 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
         setupUI(view)
         initializeMap()
         startInitialization()
+        startConnectionMonitoring()
     }
 
     override fun onResume() {
@@ -139,13 +156,8 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
         viewLifecycleOwner.lifecycleScope.launch {
             if (isAdded) {
                 updateStatusUI(currentStatus)
-            }
-        }
-
-        // Request taximeter status update if available
-        viewLifecycleOwner.lifecycleScope.launch {
-            if (isAdded) {
-                requestTaximeterStatusUpdate()
+                // Check connection health when resuming
+                checkConnectionHealth()
             }
         }
     }
@@ -157,13 +169,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
 
     override fun onDestroyView() {
         super.onDestroyView()
-
-        // Cancel all coroutines first to prevent callbacks after view destruction
-        initializationJob?.cancel()
-        statusUpdateJob?.cancel()
-        locationJob?.cancel()
-
-        // Then do the rest of cleanup
         cleanup()
     }
 
@@ -171,7 +176,6 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      * Initialize core components and services
      */
     private fun initializeComponents() {
-        // Check if fragment is still attached before accessing context
         if (!isAdded) return
 
         sharedPreferencesManager = SharedPreferencesManager(requireContext())
@@ -228,12 +232,15 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     }
 
     /**
-     * Start initialization process
+     * Start initialization process with enhanced error handling
      */
     private fun startInitialization() {
         initializationJob = viewLifecycleOwner.lifecycleScope.launch {
             try {
                 if (isAdded) {
+                    stateMutex.withLock {
+                        reconnectionAttempts = 0
+                    }
                     initializeTaximeter()
                 }
             } catch (e: Exception) {
@@ -241,47 +248,171 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
                 if (isAdded) {
                     showToast("Failed to initialize taximeter connection")
                 }
+                scheduleReconnection()
             }
         }
     }
 
     /**
-     * Initialize taximeter connection with proper error handling
+     * Start connection monitoring and heartbeat (from AddOfferActivity)
+     */
+    private fun startConnectionMonitoring() {
+        // Start heartbeat monitoring
+        heartbeatJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive && isAdded) {
+                delay(HEARTBEAT_INTERVAL_MS)
+                checkConnectionHealth()
+            }
+        }
+
+        // Start connection status monitoring
+        connectionMonitorJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive && isAdded) {
+                delay(5000) // Check every 5 seconds
+                monitorConnectionStatus()
+            }
+        }
+    }
+
+    /**
+     * Check connection health with timeout (from AddOfferActivity)
+     */
+    private suspend fun checkConnectionHealth() {
+        if (!isAdded) return
+
+        stateMutex.withLock {
+            if (!isTaximeterInitialized || !isConnected) {
+                return
+            }
+        }
+
+        try {
+            val currentTime = System.currentTimeMillis()
+            val timeSinceLastRequest = currentTime - lastStatusRequestTime
+
+            // Only request status if enough time has passed to avoid spamming
+            if (timeSinceLastRequest > STATUS_REQUEST_TIMEOUT_MS) {
+                withContext(Dispatchers.IO) {
+                    taximeterManager?.askDisplayExtendedStatus()
+                    stateMutex.withLock {
+                        lastStatusRequestTime = currentTime
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("DashboardFragment", "Health check failed: ${e.message}")
+            handleConnectionLoss()
+        }
+    }
+
+    /**
+     * Monitor connection status and handle disconnections (from AddOfferActivity)
+     */
+    private suspend fun monitorConnectionStatus() {
+        if (!isAdded) return
+
+        stateMutex.withLock {
+            if (isTaximeterInitialized && !isConnected) {
+                Log.w("DashboardFragment", "Connection lost detected, attempting reconnection")
+                handleConnectionLoss()
+            }
+        }
+    }
+
+    /**
+     * Handle connection loss with automatic reconnection (from AddOfferActivity)
+     */
+    private suspend fun handleConnectionLoss() {
+        if (!isAdded) return
+
+        stateMutex.withLock {
+            isConnected = false
+            isTaximeterInitialized = false
+            currentExtendedStatus = null
+        }
+
+        scheduleReconnection()
+    }
+
+    /**
+     * Schedule reconnection attempt with exponential backoff (from AddOfferActivity)
+     */
+    private fun scheduleReconnection() {
+        if (!isAdded) return
+
+        reconnectionJob?.cancel()
+        reconnectionJob = viewLifecycleOwner.lifecycleScope.launch {
+            stateMutex.withLock {
+                if (reconnectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
+                    if (isAdded) {
+                        withContext(Dispatchers.Main) {
+                            showToast("Unable to reconnect to taximeter. Please check connection.")
+                        }
+                    }
+                    return@launch
+                }
+                reconnectionAttempts++
+            }
+
+            val delay = RECONNECTION_DELAY_MS * reconnectionAttempts
+            Log.d(
+                "DashboardFragment",
+                "Scheduling reconnection attempt $reconnectionAttempts in ${delay}ms"
+            )
+            delay(delay)
+
+            if (isAdded) {
+                try {
+                    initializeTaximeter()
+                } catch (e: Exception) {
+                    Log.e("DashboardFragment", "Reconnection attempt failed: ${e.message}")
+                    scheduleReconnection()
+                }
+            }
+        }
+    }
+
+    /**
+     * Initialize taximeter connection with enhanced callback handling
      */
     private suspend fun initializeTaximeter() {
         if (!isAdded) return
 
         withContext(Dispatchers.IO) {
-            val context = context ?: return@withContext
-            val activity = activity ?: return@withContext
+            try {
+                val context = context ?: return@withContext
+                val activity = activity ?: return@withContext
 
-            DigitaxTaximeterInitializer(context, activity)
-                .initialize(object : DigitaxTaximeterInitializer.Callback {
-                    override fun onInitialized(
-                        taximeterManager: TaximeterManager,
-                        taxiModelAgent: TaxiModelAgent
-                    ) {
-                        // Use viewLifecycleOwner to ensure coroutine is tied to view lifecycle
-                        viewLifecycleOwner.lifecycleScope.launch {
-                            if (isAdded) {
-                                handleTaximeterInitialized(taximeterManager, taxiModelAgent)
+                DigitaxTaximeterInitializer(context, activity)
+                    .initialize(object : DigitaxTaximeterInitializer.Callback {
+                        override fun onInitialized(
+                            taximeterManager: TaximeterManager,
+                            taxiModelAgent: TaxiModelAgent
+                        ) {
+                            viewLifecycleOwner.lifecycleScope.launch {
+                                if (isAdded) {
+                                    handleTaximeterInitialized(taximeterManager, taxiModelAgent)
+                                }
                             }
                         }
-                    }
 
-                    override fun onConnectionStatusChanged(connected: Boolean) {
-                        viewLifecycleOwner.lifecycleScope.launch {
-                            if (isAdded) {
-                                handleConnectionStatusChange(connected)
+                        override fun onConnectionStatusChanged(connected: Boolean) {
+                            viewLifecycleOwner.lifecycleScope.launch {
+                                if (isAdded) {
+                                    handleConnectionStatusChange(connected)
+                                }
                             }
                         }
-                    }
-                })
+                    })
+            } catch (e: Exception) {
+                Log.e("DashboardFragment", "Taximeter initialization failed: ${e.message}")
+                throw e
+            }
         }
     }
 
     /**
-     * Handle successful taximeter initialization
+     * Handle successful taximeter initialization (enhanced from AddOfferActivity)
      */
     private suspend fun handleTaximeterInitialized(
         taximeterManager: TaximeterManager,
@@ -293,42 +424,75 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
             this.taximeterManager = taximeterManager
             this.taxiModelAgent = taxiModelAgent
             isTaximeterInitialized = true
+            reconnectionAttempts = 0 // Reset reconnection attempts on successful connection
         }
 
-        // Register listeners
-        taximeterManager.OnCurrentFareResponseReceived.registerListener(this@DashboardFragment)
-        taximeterManager.OnDisplayExtendedStatusReceived.registerListener(this@DashboardFragment)
+        try {
+            // Register listeners
+            taximeterManager.OnCurrentFareResponseReceived.registerListener(this@DashboardFragment)
+            taximeterManager.OnDisplayExtendedStatusReceived.registerListener(this@DashboardFragment)
 
-        // Request initial status
-        requestTaximeterStatusUpdate()
+            // Request initial status with timeout
+            withContext(Dispatchers.IO) {
+                taximeterManager.askDisplayExtendedStatus()
+                stateMutex.withLock {
+                    lastStatusRequestTime = System.currentTimeMillis()
+                }
+            }
 
-        Log.d("DashboardFragment", "Taximeter initialized successfully")
+            Log.d("DashboardFragment", "Taximeter initialized successfully")
+        } catch (e: Exception) {
+            Log.e("DashboardFragment", "Failed to setup taximeter listeners: ${e.message}")
+            throw e
+        }
     }
 
     /**
-     * Handle taximeter connection status changes
+     * Handle taximeter connection status changes with improved logic (from AddOfferActivity)
      */
     private suspend fun handleConnectionStatusChange(connected: Boolean) {
+        if (!isAdded) return
+
         stateMutex.withLock {
+            isConnected = connected
             if (!connected) {
                 isTaximeterInitialized = false
                 currentExtendedStatus = null
             }
         }
+
         Log.d("DashboardFragment", "Taximeter connection: $connected")
+
+        if (!connected) {
+            scheduleReconnection()
+        } else {
+            // Connection restored, reset reconnection attempts
+            stateMutex.withLock {
+                reconnectionAttempts = 0
+            }
+        }
     }
 
     /**
-     * Request taximeter status update
+     * Request taximeter status update with connection validation
      */
     private suspend fun requestTaximeterStatusUpdate() {
-        val manager = stateMutex.withLock { taximeterManager }
-        if (manager != null && isTaximeterInitialized) {
+        if (!isAdded) return
+
+        val (manager, initialized, connected) = stateMutex.withLock {
+            Triple(taximeterManager, isTaximeterInitialized, isConnected)
+        }
+
+        if (manager != null && initialized && connected) {
             withContext(Dispatchers.IO) {
                 try {
                     manager.askDisplayExtendedStatus()
+                    stateMutex.withLock {
+                        lastStatusRequestTime = System.currentTimeMillis()
+                    }
                 } catch (e: Exception) {
                     Log.e("DashboardFragment", "Failed to request status update: ${e.message}")
+                    handleConnectionLoss()
                 }
             }
         }
@@ -338,6 +502,8 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
      * Handle online/offline status change
      */
     private suspend fun handleStatusChange(isOnline: Boolean) {
+        if (!isAdded) return
+
         // Prevent multiple simultaneous status changes
         if (isProcessingOnlineStatus) {
             showToast("Status change already in progress")
@@ -676,7 +842,7 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     }
 
     /**
-     * Handle taximeter extended status updates
+     * Handle taximeter extended status updates with connection validation
      */
     override fun onDisplayExtendedStatus(
         sender: Any?,
@@ -686,8 +852,14 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
             if (isAdded) {
                 stateMutex.withLock {
                     currentExtendedStatus = response?.extendedStatusData
+                    isConnected = true // Status received means we're connected
                 }
                 updateTaximeterUI(response?.extendedStatusData)
+
+                Log.d(
+                    "DashboardFragment",
+                    "Status updated - Fare: ${response?.extendedStatusData?.CurrentFareAmount}, Shift: ${response?.extendedStatusData?.ShiftNumber}"
+                )
             }
         }
     }
@@ -724,11 +896,16 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     }
 
     /**
-     * Handle current fare response
+     * Handle current fare response with connection validation
      */
     override fun onCurrentFareResponse(sender: Any?, fare: CurrentFareResponse?) {
         viewLifecycleOwner.lifecycleScope.launch {
             if (isAdded) {
+                // Mark connection as active since we received a response
+                stateMutex.withLock {
+                    isConnected = true
+                }
+
                 val trip = stateMutex.withLock { currentTrip }
                 Log.d(
                     "DashboardFragment",
@@ -796,17 +973,29 @@ class DashboardFragment : Fragment(), OnMapReadyCallback, ILoggerHandler,
     }
 
     /**
-     * Cleanup resources and cancel running jobs
+     * Enhanced cleanup with proper job cancellation and resource management (from AddOfferActivity)
      */
     private fun cleanup() {
+        // Cancel all running jobs first to prevent callbacks after cleanup
+        initializationJob?.cancel()
+        statusUpdateJob?.cancel()
+        locationJob?.cancel()
+        connectionMonitorJob?.cancel()
+        reconnectionJob?.cancel()
+        heartbeatJob?.cancel()
+
         // Stop notifications
         lifecycleScope.launch {
             stopTripNotification()
         }
 
-        // Unregister listeners
-        taximeterManager?.OnCurrentFareResponseReceived?.unregisterListener(this)
-        taximeterManager?.OnDisplayExtendedStatusReceived?.unregisterListener(this)
+        // Unregister listeners safely
+        try {
+            taximeterManager?.OnCurrentFareResponseReceived?.unregisterListener(this)
+            taximeterManager?.OnDisplayExtendedStatusReceived?.unregisterListener(this)
+        } catch (e: Exception) {
+            Log.e("DashboardFragment", "Error unregistering listeners: ${e.message}")
+        }
 
         // Clear references
         taximeterManager = null
