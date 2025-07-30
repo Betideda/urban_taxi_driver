@@ -52,6 +52,7 @@ class TaximeterService : LifecycleService() {
         private const val RECONNECTION_DELAY_MS = 3000L
         private const val HEARTBEAT_INTERVAL_MS = 10000L
         private const val STATUS_REQUEST_TIMEOUT_MS = 5000L
+        private const val LOG_TAG = "TaximeterService"
     }
 
     inner class LocalBinder : Binder() {
@@ -72,6 +73,7 @@ class TaximeterService : LifecycleService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        Log.d(LOG_TAG, "onDestroy: Service is being destroyed.")
         cleanup()
     }
 
@@ -109,7 +111,7 @@ class TaximeterService : LifecycleService() {
                 }
                 initializeDigitaxTaximeter()
             } catch (e: Exception) {
-                Log.e("TaximeterService", "Failed to initialize taximeter: ${e.message}")
+                Log.e(LOG_TAG, "Failed to initialize taximeter: ${e.message}")
                 scheduleReconnection()
             }
         }
@@ -118,6 +120,7 @@ class TaximeterService : LifecycleService() {
     private suspend fun initializeDigitaxTaximeter() {
         withContext(Dispatchers.IO) {
             try {
+                Log.d(LOG_TAG, "initializeDigitaxTaximeter: Starting initialization.")
                 val btManager = BluetoothManagerDigitax(this@TaximeterService)
                 val pairedDevices: List<BluetoothDevicePaired>? = btManager.PairedDigitaxDevicesGet()
                 val btDevice = pairedDevices?.firstOrNull()?.Device
@@ -132,9 +135,10 @@ class TaximeterService : LifecycleService() {
                 taxiModelAgent = localTaxiModelAgent
 
                 handleTaximeterInitialized(localTaximeterManager, localTaxiModelAgent)
+                Log.d(LOG_TAG, "initializeDigitaxTaximeter: Calling ProtocolStart.")
                 dataSource?.ProtocolStart()
             } catch (e: Exception) {
-                Log.e("TaximeterService", "Taximeter initialization failed: ${e.message}")
+                Log.e(LOG_TAG, "Taximeter initialization failed: ${e.message}")
                 throw e
             }
         }
@@ -150,7 +154,7 @@ class TaximeterService : LifecycleService() {
             isTaximeterInitialized = true
             reconnectionAttempts = 0
         }
-        Log.d("TaximeterService", "Taximeter initialized successfully")
+        Log.d(LOG_TAG, "Taximeter initialized successfully")
     }
 
     private suspend fun handleConnectionStatusChange(connected: Boolean) {
@@ -161,7 +165,7 @@ class TaximeterService : LifecycleService() {
             }
         }
 
-        Log.d("TaximeterService", "Taximeter connection: $connected")
+        Log.d(LOG_TAG, "Taximeter connection: $connected")
 
         if (!connected) {
             scheduleReconnection()
@@ -208,7 +212,7 @@ class TaximeterService : LifecycleService() {
                 }
             }
         } catch (e: Exception) {
-            Log.e("TaximeterService", "Health check failed: ${e.message}")
+            Log.e(LOG_TAG, "Health check failed: ${e.message}")
             handleConnectionLoss()
         }
     }
@@ -216,13 +220,14 @@ class TaximeterService : LifecycleService() {
     private suspend fun monitorConnectionStatus() {
         stateMutex.withLock {
             if (isTaximeterInitialized && !isConnected) {
-                Log.w("TaximeterService", "Connection lost detected, attempting reconnection")
+                Log.w(LOG_TAG, "Connection lost detected, attempting reconnection")
                 handleConnectionLoss()
             }
         }
     }
 
     private suspend fun handleConnectionLoss() {
+        Log.w(LOG_TAG, "handleConnectionLoss: Connection lost.")
         cleanupConnection()
         stateMutex.withLock {
             isConnected = false
@@ -234,11 +239,12 @@ class TaximeterService : LifecycleService() {
     private fun scheduleReconnection() {
         reconnectionJob?.cancel()
         reconnectionJob = lifecycleScope.launch {
+            Log.d(LOG_TAG, "scheduleReconnection: Scheduling reconnection.")
             cleanupConnection()
             stateMutex.withLock {
                 if (reconnectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
                     Log.e(
-                        "TaximeterService",
+                        LOG_TAG,
                         "Unable to reconnect to taximeter. Max attempts reached."
                     )
                     return@launch
@@ -248,7 +254,7 @@ class TaximeterService : LifecycleService() {
 
             val delay = RECONNECTION_DELAY_MS * reconnectionAttempts
             Log.d(
-                "TaximeterService",
+                LOG_TAG,
                 "Scheduling reconnection attempt $reconnectionAttempts in ${delay}ms"
             )
             delay(delay)
@@ -256,24 +262,31 @@ class TaximeterService : LifecycleService() {
             try {
                 initializeDigitaxTaximeter()
             } catch (e: Exception) {
-                Log.e("TaximeterService", "Reconnection attempt failed: ${e.message}")
+                Log.e(LOG_TAG, "Reconnection attempt failed: ${e.message}")
                 scheduleReconnection()
             }
         }
     }
 
     private fun cleanupConnection() {
-        dataSource?.ProtocolStop(true)
+        Log.d(LOG_TAG, "cleanupConnection: Cleaning up connection.")
+        try {
+            dataSource?.ProtocolStop(true)
+            Log.d(LOG_TAG, "cleanupConnection: ProtocolStop called.")
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "cleanupConnection: Error calling ProtocolStop: ${e.message}")
+        }
         dataSource = null
         taximeterManager = null
         taxiModelAgent = null
     }
 
     private fun cleanup() {
+        Log.d(LOG_TAG, "cleanup: Cleaning up service.")
         connectionMonitorJob?.cancel()
         reconnectionJob?.cancel()
         heartbeatJob?.cancel()
         cleanupConnection()
-        Log.d("TaximeterService", "Cleanup completed")
+        Log.d(LOG_TAG, "Cleanup completed")
     }
 }
