@@ -482,8 +482,8 @@ class AddOfferActivity :
 
         // Ensure shift is active
         if (!shiftHandler.isShiftActive()) {
-            shiftHandler.startShift()
-            delay(1000) // Give time for shift to start
+            showToast("Shift has not been started. Please start your shift.")
+            return
         }
 
         // Validate taximeter status with retry logic
