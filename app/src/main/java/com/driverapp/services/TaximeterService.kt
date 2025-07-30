@@ -112,29 +112,27 @@ class TaximeterService : LifecycleService() {
     }
 
     private suspend fun initializeDigitaxTaximeter() {
-        withContext(Dispatchers.IO) {
-            try {
-                ServiceTaximeterInitializer(this@TaximeterService)
-                    .initialize(object : ServiceTaximeterInitializer.Callback {
-                        override fun onInitialized(
-                            taximeterManager: TaximeterManager,
-                            taxiModelAgent: TaxiModelAgent
-                        ) {
-                            lifecycleScope.launch {
-                                handleTaximeterInitialized(taximeterManager, taxiModelAgent)
-                            }
+        try {
+            ServiceTaximeterInitializer(this@TaximeterService)
+                .initialize(object : ServiceTaximeterInitializer.Callback {
+                    override fun onInitialized(
+                        taximeterManager: TaximeterManager,
+                        taxiModelAgent: TaxiModelAgent
+                    ) {
+                        lifecycleScope.launch {
+                            handleTaximeterInitialized(taximeterManager, taxiModelAgent)
                         }
+                    }
 
-                        override fun onConnectionStatusChanged(connected: Boolean) {
-                            lifecycleScope.launch {
-                                handleConnectionStatusChange(connected)
-                            }
+                    override fun onConnectionStatusChanged(connected: Boolean) {
+                        lifecycleScope.launch {
+                            handleConnectionStatusChange(connected)
                         }
-                    })
-            } catch (e: Exception) {
-                Log.e("TaximeterService", "Taximeter initialization failed: ${e.message}")
-                throw e
-            }
+                    }
+                })
+        } catch (e: Exception) {
+            Log.e("TaximeterService", "Taximeter initialization failed: ${e.message}")
+            throw e
         }
     }
 
