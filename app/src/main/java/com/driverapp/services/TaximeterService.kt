@@ -14,7 +14,6 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.digitax.android.libcomtax2.taximeter.TaximeterManager
 import com.driverapp.R
-import com.driverapp.utils.ServiceTaximeterInitializer
 import com.driverapp.utils.TaxiModelAgent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,12 +23,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import com.digitax.protocols.Bluetooth.BluetoothDevicePaired
+import com.digitax.protocols.Bluetooth.BluetoothManagerDigitax
+import com.digitax.protocols.DataSource.BleTaxDataSource
+import com.digitax.protocols.ILoggerHandler
 
 class TaximeterService : LifecycleService() {
 
     private val binder = LocalBinder()
     private var taximeterManager: TaximeterManager? = null
     private var taxiModelAgent: TaxiModelAgent? = null
+    private var dataSource: BleTaxDataSource? = null
 
     private val stateMutex = Mutex()
     private var isTaximeterInitialized = false
@@ -112,27 +116,27 @@ class TaximeterService : LifecycleService() {
     }
 
     private suspend fun initializeDigitaxTaximeter() {
-        try {
-            ServiceTaximeterInitializer(this@TaximeterService)
-                .initialize(object : ServiceTaximeterInitializer.Callback {
-                    override fun onInitialized(
-                        taximeterManager: TaximeterManager,
-                        taxiModelAgent: TaxiModelAgent
-                    ) {
-                        lifecycleScope.launch {
-                            handleTaximeterInitialized(taximeterManager, taxiModelAgent)
-                        }
-                    }
+        withContext(Dispatchers.IO) {
+            try {
+                val btManager = BluetoothManagerDigitax(this@TaximeterService)
+                val pairedDevices: List<BluetoothDevicePaired>? = btManager.PairedDigitaxDevicesGet()
+                val btDevice = pairedDevices?.firstOrNull()?.Device
 
-                    override fun onConnectionStatusChanged(connected: Boolean) {
-                        lifecycleScope.launch {
-                            handleConnectionStatusChange(connected)
-                        }
-                    }
-                })
-        } catch (e: Exception) {
-            Log.e("TaximeterService", "Taximeter initialization failed: ${e.message}")
-            throw e
+                val localDataSource = BleTaxDataSource(this@TaximeterService, btDevice)
+                val loggerHandler = ILoggerHandler { }
+                val localTaximeterManager = btManager.BleTaximeterDataSourceGet(loggerHandler, localDataSource)
+                val localTaxiModelAgent = TaxiModelAgent(localTaximeterManager)
+
+                dataSource = localDataSource
+                taximeterManager = localTaximeterManager
+                taxiModelAgent = localTaxiModelAgent
+
+                handleTaximeterInitialized(localTaximeterManager, localTaxiModelAgent)
+                dataSource?.ProtocolStart()
+            } catch (e: Exception) {
+                Log.e("TaximeterService", "Taximeter initialization failed: ${e.message}")
+                throw e
+            }
         }
     }
 
@@ -219,6 +223,7 @@ class TaximeterService : LifecycleService() {
     }
 
     private suspend fun handleConnectionLoss() {
+        cleanupConnection()
         stateMutex.withLock {
             isConnected = false
             isTaximeterInitialized = false
@@ -229,6 +234,7 @@ class TaximeterService : LifecycleService() {
     private fun scheduleReconnection() {
         reconnectionJob?.cancel()
         reconnectionJob = lifecycleScope.launch {
+            cleanupConnection()
             stateMutex.withLock {
                 if (reconnectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
                     Log.e(
@@ -256,12 +262,18 @@ class TaximeterService : LifecycleService() {
         }
     }
 
+    private fun cleanupConnection() {
+        dataSource?.ProtocolStop(true)
+        dataSource = null
+        taximeterManager = null
+        taxiModelAgent = null
+    }
+
     private fun cleanup() {
         connectionMonitorJob?.cancel()
         reconnectionJob?.cancel()
         heartbeatJob?.cancel()
-        taximeterManager = null
-        taxiModelAgent = null
+        cleanupConnection()
         Log.d("TaximeterService", "Cleanup completed")
     }
 }
