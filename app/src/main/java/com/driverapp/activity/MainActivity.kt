@@ -3,22 +3,16 @@ package com.driverapp.activity
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
-import com.digitax.android.libcomtax2.taximeter.TaximeterManager
 import com.digitax.protocols.ILoggerHandler
 import com.digitax.protocols.LogEventArgs
 import com.driverapp.R
-import com.driverapp.utils.TaxiModelAgent
 import com.driverapp.fragments.TripsFragment
 import com.driverapp.fragments.DashboardFragment
 import com.driverapp.fragments.SettingsProfileFragment
 import com.driverapp.fragments.ShiftsFragment
-import com.driverapp.fragments.TaxiControlFragment
 import com.google.android.material.bottomnavigation.BottomNavigationView
 
 class MainActivity : AppCompatActivity(), ILoggerHandler {
-    private var taximeterManager: TaximeterManager? = null
-    private var taxiModelAgent: TaxiModelAgent? = null
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
