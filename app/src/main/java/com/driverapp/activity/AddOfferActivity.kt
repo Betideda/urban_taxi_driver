@@ -776,9 +776,11 @@ class AddOfferActivity :
                 isConnected = true // Status received means we're connected
             }
 
+            val fareResponse = response?.extendedStatusData?.CurrentFareAmount
+            val shiftResponse = response?.extendedStatusData?.ShiftNumber
             Log.d(
                 "AddOfferActivity",
-                "Status updated - Fare: ${response?.extendedStatusData?.CurrentFareAmount}, Shift: ${response?.extendedStatusData?.ShiftNumber}"
+                "Status updated - Fare: $fareResponse, Shift: $shiftResponse"
             )
         }
     }
