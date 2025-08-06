@@ -5,6 +5,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:orientation="vertical"
     xmlns:app="http://schemas.android.com/apk/res-auto">
+
     <androidx.appcompat.widget.Toolbar
         android:id="@+id/toolbar"
         android:layout_width="match_parent"
@@ -29,12 +30,25 @@
                 android:textStyle="bold" />
 
             <ImageView
+                android:id="@+id/screenLogo"
                 android:layout_width="85dp"
                 android:layout_height="45dp"
                 android:layout_centerInParent="true"
                 android:layout_gravity="center"
                 android:contentDescription="@string/app_logo"
                 android:src="@drawable/urban_logo_no_bg" />
+
+            <ImageButton
+                android:id="@+id/connectionButton"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_alignParentEnd="true"
+                android:layout_marginStart="75dp"
+                android:layout_marginEnd="16dp"
+                android:layout_toEndOf="@+id/screenLogo"
+                android:contentDescription="Test"
+                android:scaleType="centerInside"
+                app:srcCompat="@drawable/wifi" />
 
         </RelativeLayout>
 
@@ -150,6 +164,7 @@
                 android:textColor="@color/black"
                 android:textSize="22sp"
                 tools:text="16" />
+
             <TextView
                 android:id="@+id/tripCount"
                 android:layout_width="match_parent"
@@ -161,6 +176,7 @@
                 android:textColor="@color/black"
                 android:textSize="22sp"
                 tools:text="16" />
+
             <TextView
                 android:id="@+id/totalFare"
                 android:layout_width="match_parent"

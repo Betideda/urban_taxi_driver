@@ -39,14 +39,17 @@
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
-            <Button
+            <ImageButton
                 android:id="@+id/connectionButton"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:layout_marginStart="63dp"
+                android:layout_alignParentEnd="true"
+                android:layout_marginStart="75dp"
+                android:layout_marginEnd="16dp"
                 android:layout_toEndOf="@+id/textView"
-                android:text="Conn"
-                android:textColor="#1E0C0C" />
+                android:contentDescription="Test"
+                android:scaleType="centerInside"
+                app:srcCompat="@drawable/wifi" />
 
         </RelativeLayout>
 

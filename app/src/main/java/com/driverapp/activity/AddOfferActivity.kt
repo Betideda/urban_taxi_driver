@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -70,7 +71,7 @@ class AddOfferActivity :
     private var taxiModelAgentt: TaxiModelAgent? = null
     private lateinit var recyclerView: RecyclerView
     private lateinit var backButton: ImageView
-    private lateinit var connectionButton: Button
+    private lateinit var connectionButton: ImageButton
 
     // Enhanced state management with thread safety
     private val stateMutex = Mutex()

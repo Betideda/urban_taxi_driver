@@ -1,5 +1,6 @@
 package com.driverapp.fragments
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -7,6 +8,7 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -40,6 +42,7 @@ import kotlinx.coroutines.isActive
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.system.exitProcess
 
 class ShiftsFragment : Fragment(),
     DisplayExtendedStatusListener,
@@ -56,6 +59,7 @@ class ShiftsFragment : Fragment(),
     private lateinit var shiftNumberText: TextView
     private lateinit var tripCountText: TextView
     private lateinit var totalFareText: TextView
+    private lateinit var connectionButton: ImageButton
 
     // region Class Member Variables
     private lateinit var sharedPreferencesManager: SharedPreferencesManager
@@ -153,6 +157,12 @@ class ShiftsFragment : Fragment(),
         tripCountText = view.findViewById(R.id.tripCount)
         totalFareText = view.findViewById(R.id.totalFare)
 
+
+        connectionButton = view.findViewById(R.id.connectionButton)
+        connectionButton.setOnClickListener {
+            restartApp()
+        }
+
         // Set click listeners
         offlineLayout.setOnClickListener {
             handleOfflineClick()
@@ -160,6 +170,36 @@ class ShiftsFragment : Fragment(),
 
         onlineLayout.setOnClickListener {
             handleOnlineClick()
+        }
+    }
+
+
+    // Simple restart function for Fragment
+    private fun restartApp() {
+        try {
+            // Get packageManager from context instead of directly
+            val intent =
+                requireContext().packageManager.getLaunchIntentForPackage(requireContext().packageName)
+            intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK) // This is important
+            startActivity(intent)
+
+            // Force kill the process
+            android.os.Process.killProcess(android.os.Process.myPid())
+            exitProcess(0)
+        } catch (e: Exception) {
+            Log.e("ShiftsFragment", "Error restarting app: ${e.message}")
+            // Fallback: try to restart via activity
+            activity?.let { activity ->
+                val intent = activity.packageManager.getLaunchIntentForPackage(activity.packageName)
+                intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                startActivity(intent)
+                android.os.Process.killProcess(android.os.Process.myPid())
+                exitProcess(0)
+            }
         }
     }
 
