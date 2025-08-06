@@ -50,6 +50,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.isActive
 import retrofit2.Call
+import kotlin.system.exitProcess
 
 /**
  * AddOfferActivity displays available taxi offers to drivers and handles trip initiation.
@@ -69,6 +70,7 @@ class AddOfferActivity :
     private var taxiModelAgentt: TaxiModelAgent? = null
     private lateinit var recyclerView: RecyclerView
     private lateinit var backButton: ImageView
+    private lateinit var connectionButton: Button
 
     // Enhanced state management with thread safety
     private val stateMutex = Mutex()
@@ -147,9 +149,27 @@ class AddOfferActivity :
             onBackPressedDispatcher.onBackPressed()
         }
 
+        connectionButton = findViewById(R.id.connectionButton)
+        connectionButton.setOnClickListener {
+            restartApp()
+        }
+
         recyclerView = findViewById(R.id.recyclerViewOffers)
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.setHasFixedSize(true)
+    }
+
+    // Simple restart function
+    private fun restartApp() {
+        val intent = packageManager.getLaunchIntentForPackage(packageName)
+        intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK) // This is important
+        startActivity(intent)
+
+        // Force kill the process
+        android.os.Process.killProcess(android.os.Process.myPid())
+        exitProcess(0)
     }
 
     /**

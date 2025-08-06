@@ -20,13 +20,16 @@
             android:layout_height="wrap_content">
 
             <ImageView
-               android:id="@+id/backButton"
+                android:id="@+id/backButton"
                 android:layout_width="26dp"
-                android:layout_height="26dp"
+                android:layout_height="match_parent"
                 android:layout_gravity="center"
+                android:layout_marginEnd="149dp"
+                android:layout_toStartOf="@+id/textView"
                 android:src="@drawable/arrow_back" />
 
             <TextView
+                android:id="@+id/textView"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_centerInParent="true"
@@ -35,6 +38,15 @@
                 android:textColor="@color/black"
                 android:textSize="16sp"
                 android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/connectionButton"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_marginStart="63dp"
+                android:layout_toEndOf="@+id/textView"
+                android:text="Conn"
+                android:textColor="#1E0C0C" />
 
         </RelativeLayout>
 
